@@ -1,0 +1,52 @@
+/* ===========================================================================
+   AdhikarAI global styles. Visual identity ported from the prototype:
+   deep government blue, saffron/white/green tricolour accent, WhatsApp greens.
+   =========================================================================== */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: 'Hanken Grotesk', 'Noto Sans', system-ui, sans-serif;
+  background: #06223d;
+  color: #111b21;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Native-script font stack for Indian languages */
+.adh-native {
+  font-family: 'Noto Sans', 'Noto Sans Devanagari', 'Noto Sans Telugu',
+    'Noto Sans Tamil', 'Noto Sans Bengali', 'Hanken Grotesk', sans-serif;
+}
+
+button { font-family: inherit; }
+
+/* Animations (ported) */
+@keyframes adhblink { 0%,80%,100% { opacity: .25 } 40% { opacity: 1 } }
+@keyframes adhwave  { 0%,100% { transform: scaleY(.3) } 50% { transform: scaleY(1) } }
+@keyframes adhpulse { 0% { box-shadow: 0 0 0 0 rgba(214,40,40,.5) } 100% { box-shadow: 0 0 0 18px rgba(214,40,40,0) } }
+@keyframes adhup    { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+@keyframes adhspin  { to { transform: rotate(360deg) } }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: rgba(11,60,107,.22); border-radius: 8px; }
+
+/* Accessibility: respect reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+
+/* Visible keyboard focus for the quality floor */
+button:focus-visible, a:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid #1F84D6;
+  outline-offset: 2px;
+}
+
+.adh-spinner {
+  width: 16px; height: 16px;
+  border: 2.5px solid rgba(255,255,255,.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: adhspin .7s linear infinite;
+  display: inline-block;
+}

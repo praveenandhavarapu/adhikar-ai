@@ -1,0 +1,22 @@
+# Netlify build + function config.
+# The redirect maps /api/<name>  ->  /.netlify/functions/<name>
+# so the front-end can call clean URLs like /api/classify.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# SPA fallback: every non-file route serves index.html so React Router works.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
