@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 180 npm install)",
+      "Read(//tmp/**)",
+      "Bash(npm install *)",
+      "Bash(command -v nvm)",
+      "Read(//Users/suryanshu/.nvm/versions/**)",
+      "Read(//usr/local/**)",
+      "Bash(command -v git)",
+      "Bash(git --version)",
+      "Bash(git -C /Users/suryanshu/Desktop/adhikar-ai-feature-aa rev-parse --is-inside-work-tree)",
+      "Bash(git reset *)",
+      "Bash(git add *)",
+      "Bash(git -c user.email=suryanshu.lakhotia@gmail.com -c 'user.name=Suryanshu Lakhotia' commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git credential *)",
+      "Bash(env)",
+      "Bash(ssh -o StrictHostKeyChecking=accept-new -T git@github.com)",
+      "Bash(ssh-add -l)"
+    ]
+  }
+}
