@@ -198,9 +198,40 @@ function TicketDetail({ t, onStatus }: { t: Ticket; onStatus: (id: string, s: Ti
             )}
           </div>
 
+          {t.voice_clips && t.voice_clips.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <SectionLabel>Citizen voice note</SectionLabel>
+              {t.voice_clips.map((c) => (
+                <div key={c.id} style={{ marginTop: 6 }}>
+                  <audio controls src={c.url} style={{ width: '100%', height: 38 }} />
+                  {c.transcript && (
+                    <p className="adh-native" style={{ fontSize: 12, color: '#5b7488', lineHeight: 1.5, margin: '6px 0 0', background: '#f7f9fb', padding: '8px 10px', borderRadius: 8 }}>
+                      “{c.transcript}”
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {t.updates && t.updates.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <SectionLabel>Status history</SectionLabel>
+              <div style={{ marginTop: 6 }}>
+                {t.updates.map((u, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0' }}>
+                    <span style={{ fontSize: 11, color: '#8aa0b4', minWidth: 128 }}>{fmtDateTime(u.ts)}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: STATUS_META[u.status]?.fg || '#23323f' }}>{STATUS_META[u.status]?.label || u.status}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <SectionLabel>Routed to</SectionLabel>
           <p style={{ fontSize: 13, color: '#23323f', margin: '6px 0 4px' }}>{t.route}</p>
           <p style={{ fontSize: 12, color: '#8aa0b4' }}>Contact: {t.contact_masked}</p>
+          {t.phone && <p style={{ fontSize: 12, color: '#8aa0b4' }}>Phone (self-declared): {t.phone}</p>}
         </div>
       </div>
 
@@ -264,4 +295,11 @@ function slaInfo(t: Ticket): { text: string; fg: string } {
 }
 function countByStatus(tickets: Ticket[]): Record<string, number> {
   return tickets.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {} as Record<string, number>);
+}
+function fmtDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return iso; }
 }

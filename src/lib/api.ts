@@ -41,9 +41,34 @@ export async function createTicket(
   return postJson('/api/create-ticket', input);
 }
 
+// Upload a recorded voice note; returns the clip id to attach to the ticket.
+// Returns null on failure so the flow can continue without the audio.
+export async function uploadVoiceClip(input: {
+  audioBase64: string;
+  mime: string;
+  lang: string;
+  phone: string;
+  transcript: string;
+}): Promise<{ id: string; url: string } | null> {
+  try {
+    return await postJson<{ id: string; url: string }>('/api/upload-voice', input);
+  } catch (err) {
+    console.error('uploadVoiceClip failed:', err);
+    return null;
+  }
+}
+
 export async function fetchTickets(): Promise<Ticket[]> {
   const res = await fetch('/api/tickets');
   if (!res.ok) throw new Error(`/api/tickets -> ${res.status}`);
+  const data = (await res.json()) as { tickets: Ticket[] };
+  return data.tickets;
+}
+
+// A citizen's own complaints (by self-declared phone), newest first.
+export async function fetchTicketsByPhone(phone: string): Promise<Ticket[]> {
+  const res = await fetch(`/api/tickets?phone=${encodeURIComponent(phone)}`);
+  if (!res.ok) throw new Error(`/api/tickets?phone -> ${res.status}`);
   const data = (await res.json()) as { tickets: Ticket[] };
   return data.tickets;
 }

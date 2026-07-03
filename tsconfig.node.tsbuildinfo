@@ -1,0 +1,1 @@
+{"root":["./vite.config.ts","./netlify/functions/_shared.ts","./netlify/functions/classify.ts","./netlify/functions/create-ticket.ts","./netlify/functions/tickets.ts","./netlify/functions/upload-voice.ts"],"version":"5.9.3"}

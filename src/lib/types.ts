@@ -38,12 +38,25 @@ export interface ExtractedFields {
   duration?: string;
   location?: string;
   amount?: string;
-  bank?: string;
+  bank?: string;          // free-text bank name (which_bank question)
+  which_bank?: string;
   person_age?: string;
   occupation?: string;
   paid?: string;
   bank_linked?: string;
   detail_field?: string;
+  // deeper diagnostics added for richer officer context:
+  ekyc_done?: string;
+  reason_given?: string;
+  docs_status?: string;
+  attempts?: string;
+  alt_auth_offered?: string;
+  recent_bank_change?: string;
+  repeat_demand?: string;
+  official_role?: string;
+  denial_reason?: string;  // free-text
+  card_status?: string;
+  docs_available?: string;
 }
 
 // ---- /api/classify response ------------------------------------------------
@@ -52,14 +65,27 @@ export interface ClassifyResult {
   issue: IssueCode;
   confidence: number;        // 0..1 — below CONFIDENCE_FLOOR we fall back to menus
   english_summary: string;   // one-sentence officer-facing translation
+  citizen_ack: string;       // warm one-sentence ack, written in citizen's language
   extracted: ExtractedFields;
   missing: string[];         // field keys the citizen still needs to provide
   priority: boolean;         // true for bribe / corruption — fast lane
 }
 
+// ---- Voice clip stored in Supabase Storage + voice_clips table --------------
+export interface VoiceClip {
+  id: string;
+  ticket_id: string | null;
+  phone: string | null;
+  lang: string;
+  url: string;               // public URL to the audio file
+  transcript: string;        // silent on-device transcript, used for classify
+  created_at: string;
+}
+
 // ---- /api/create-ticket request --------------------------------------------
 export interface CreateTicketInput {
   name: string;
+  phone: string;              // self-declared device phone, used as user id
   lang: LangCode;
   state: string;
   district: string;
@@ -70,12 +96,20 @@ export interface CreateTicketInput {
   english_summary: string;    // NLU translation
   extracted: ExtractedFields;
   detail_rows: Array<[string, string]>; // [label, value] for officer display
+  voice_clip_id?: string;     // links an uploaded voice note to this ticket
+}
+
+// One entry in a ticket's status-change history.
+export interface TicketUpdate {
+  ts: string;                 // ISO timestamp
+  status: TicketStatus;
 }
 
 // ---- A ticket as stored + returned -----------------------------------------
 export interface Ticket {
   id: string;                 // ADH-2026-#####
   name: string;
+  phone: string;              // self-declared device phone (user id)
   lang: LangCode;
   lang_label: string;
   state: string;
@@ -94,6 +128,8 @@ export interface Ticket {
   ai_root_cause: string;      // plain-language root-cause analysis
   ai_suggested_resolution: string; // recommended officer action
   ai_cross_scheme: string[];  // other schemes likely hit by same root cause
+  updates: TicketUpdate[];    // status-change history (timeline)
+  voice_clips?: VoiceClip[];  // embedded voice notes (officer can play)
   created_at: string;         // ISO timestamp
   age_days: number;           // derived for SLA display
 }

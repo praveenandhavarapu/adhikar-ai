@@ -36,6 +36,15 @@ create index if not exists tickets_district_idx on public.tickets (district);
 create index if not exists tickets_scheme_idx   on public.tickets (scheme);
 create index if not exists tickets_created_idx  on public.tickets (created_at desc);
 
+-- ---- additive columns (safe to re-run on an existing install) ----------------
+-- phone: self-declared device number, used as the citizen's user id so all their
+--        tickets group together and they can track past complaints.
+-- updates: status-change history [{ts,status}, …] powering the tracking timeline.
+alter table public.tickets add column if not exists phone   text not null default '';
+alter table public.tickets add column if not exists updates jsonb not null default '[]'::jsonb;
+
+create index if not exists tickets_phone_idx on public.tickets (phone);
+
 -- ---- Row Level Security -----------------------------------------------------
 -- Functions use the service_role key and bypass RLS. The browser uses the anon
 -- key. For this no-auth demo we allow the anon role to read tickets (the
@@ -50,6 +59,42 @@ create policy "anon can read tickets"
   using (true);
 
 -- (No insert/update/delete policy for anon: writes happen via service_role only.)
+
+-- ---- voice_clips ------------------------------------------------------------
+-- Real audio voice notes recorded by the citizen. The file itself lives in the
+-- "voice-clips" Storage bucket; this table holds the metadata + public URL and
+-- links the clip to its ticket so the officer dashboard can play it.
+create table if not exists public.voice_clips (
+  id          uuid primary key default gen_random_uuid(),
+  ticket_id   text references public.tickets (id) on delete set null,
+  phone       text not null default '',
+  lang        text not null default 'en',
+  url         text not null,
+  transcript  text not null default '',
+  created_at  timestamptz not null default now()
+);
+create index if not exists voice_clips_ticket_idx on public.voice_clips (ticket_id);
+create index if not exists voice_clips_phone_idx  on public.voice_clips (phone);
+
+alter table public.voice_clips enable row level security;
+drop policy if exists "anon can read voice_clips" on public.voice_clips;
+create policy "anon can read voice_clips"
+  on public.voice_clips for select
+  to anon
+  using (true);
+-- (Writes happen via the secured upload-voice function using service_role.)
+
+-- ---- Storage bucket for the audio files -------------------------------------
+-- Public-read bucket so the officer dashboard's <audio> player can stream clips.
+insert into storage.buckets (id, name, public)
+values ('voice-clips', 'voice-clips', true)
+on conflict (id) do nothing;
+
+drop policy if exists "public read voice-clips" on storage.objects;
+create policy "public read voice-clips"
+  on storage.objects for select
+  to public
+  using (bucket_id = 'voice-clips');
 
 -- ---- Seed data (the prototype's demo tickets, so the dashboard is alive) ----
 insert into public.tickets

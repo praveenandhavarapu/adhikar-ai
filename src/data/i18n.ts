@@ -1,230 +1,273 @@
-// Localized UI strings (ported verbatim from the prototype STR table).
-// en/hi/te/ta/bn are fully localized; other languages reuse hi for UI copy.
+// ============================================================================
+// Localized UI strings for the citizen chat.
+//
+// STR  — full sentences the bot speaks (one table per language).
+// OPT  — short labels for multiple-choice chip *values* (shared across
+//        questions), so no chip ever falls back to English mid-conversation.
+// ROW  — summary-card row headers.
+//
+// Every language listed in data/languages.ts has an entry. Bhojpuri (bh) and
+// Maithili (mai) intentionally reuse the Hindi tables — they are close enough
+// that Hindi is the natural default when a distinct word isn't available.
+// Anything genuinely missing falls back to English via the helpers at the end.
+// ============================================================================
 
 export type StrKey = keyof typeof STR_EN;
 
 const STR_EN = {
-  "greet": "Namaste! I'm AdhikarAI, your welfare grievance assistant. Let's raise your complaint together.",
-  "askName": "First, what's your name?",
-  "namePh": "Type your name",
-  "askState": "Which state are you in?",
-  "askDistrict": "And which district?",
-  "askScheme": "Which benefit are you having difficulty with?",
-  "askIssue": "What issue are you facing?",
-  "voicePrompt": "Tell me in your own words — what happened, when and where, and what you'd like resolved. Type, or tap the mic to speak.",
-  "transcribing": "Transcribing your voice note…",
-  "summaryTitle": "Here's what I understood",
-  "confirmQ": "Is this correct?",
-  "yes": "Yes, that's right",
-  "noFix": "No, fix something",
-  "cross": "Your other Aadhaar-linked benefits may be hit by the same cause. Shall I check them together?",
-  "ticketStd": "Complaint registered. A district officer will respond within 2 working days.",
-  "ticketPri": "Escalated to a senior officer. You'll get a response within 24 hours.",
-  "welcome": "Welcome back, {n}. How can we help today?",
-  "bribe": "No one should demand money for a benefit that is yours by right. This is confidential and goes straight to a senior officer. Helpline: 1947.",
-  "askDur": "How long has this been happening?",
-  "askReason": "Were you told any reason for it stopping?",
-  "askDocs": "Which of these do you currently have? Select all that apply.",
-  "askBank": "Do you have a bank account linked to Aadhaar?",
-  "jandhanInfo": "Without a linked account your benefit can't be paid. I can help you open a free Jan Dhan account at the nearest branch — no minimum balance.",
-  "askBioLoc": "Where did the authentication fail?",
-  "askBioNature": "What happened exactly?",
-  "askBioAge": "What is the age of the person facing this?",
-  "askBioOcc": "What is their main occupation?",
-  "askPayBank": "Which bank should receive the payment?",
-  "askPayNew": "Did you recently link a new bank account to your Aadhaar?",
-  "askBribeWhere": "Where was this payment demanded?",
-  "askBribeAmt": "How much was demanded?",
-  "askBribePaid": "Did you end up paying?",
-  "askDenWhere": "Where were you denied access?",
-  "askDenDetail": "What were you told when you were turned away?",
-  "askDetWhat": "Which detail is recorded incorrectly?",
-  "askEscalateId": "Please share the Ticket ID you'd like escalated.",
-  "askFeedback": "How well was your issue resolved?",
-  "payBankPh": "e.g. SBI, Grameena Bank",
-  "denDetailPh": "Briefly, what they said",
-  "changeLanguage": "Got it! I'll continue in English from here."
+  greet: "Namaste! I'm AdhikarAI, your welfare grievance assistant. Let's raise your complaint together.",
+  askPhone: "First, please share your phone number. We'll use it to keep all your complaints in one place.",
+  phonePh: "Enter your 10-digit phone number",
+  askName: "Thank you. And what's your name?",
+  namePh: "Type your name",
+  askContinueName: "Welcome back, {n}. Shall we continue with this name?",
+  keepName: "Yes, continue as {n}",
+  changeName: "No, use a different name",
+  askFlowChoice: "What would you like to do today?",
+  optNewTicket: "Raise a new complaint",
+  optTrackTicket: "Track an old complaint",
+  noTickets: "You don't have any earlier complaints yet. Let's raise your first one.",
+  trackSelectTitle: "Select a complaint to see its status",
+  tStatusLabel: "Current status",
+  tOfficeLabel: "Currently with",
+  tUpdatesLabel: "Updates so far",
+  tNoUpdates: "No updates yet — your complaint is in the queue.",
+  tOpenedOn: "Raised on",
+  stOpen: "Open — awaiting officer",
+  stProgress: "In progress",
+  stEscalated: "Escalated to senior officer",
+  stResolved: "Resolved",
+  askState: "Which state are you in?",
+  askDistrict: "And which district?",
+  askScheme: "Which benefit are you having difficulty with?",
+  askIssue: "What issue are you facing?",
+  voicePrompt: "Tell me in your own words — what happened, when and where, and what you'd like resolved. Type, or tap the mic to send a voice note.",
+  micHint: "Tap the mic to record a voice note instead of typing.",
+  askVoiceConsent: "Shall I record this as a voice note in your language?",
+  vYes: "Yes, record my voice",
+  vNo: "No, I'll type it",
+  recTap: "Tap the button and speak. Tap again when you're done.",
+  recStop: "Recording… tap to stop",
+  recSending: "Saving your voice note…",
+  recFail: "I couldn't catch that. Please type your complaint instead.",
+  summaryTitle: "Here's what I understood",
+  confirmQ: "Is this correct?",
+  yes: "Yes, that's right",
+  noFix: "No, fix something",
+  ticketStd: "Complaint registered. A district officer will respond within 2 working days.",
+  ticketPri: "Escalated to a senior officer. You'll get a response within 24 hours.",
+  thanks: "Thank you for coming to us and raising your problem. Our team will take care of the issue and will get back to you if we need any further information.",
+  restartHint: 'Say "hi" anytime to start again.',
+  fallbackRoute: "Let me make sure I route this correctly — a couple of quick taps:",
+  saveError: "Something went wrong saving your complaint. Please try again in a moment.",
+  ackFallback: "Understood. A few quick questions to help the officer.",
+  askDur: "How long has this been happening?",
+  askBank: "Do you have a bank account linked to Aadhaar?",
+  askEkyc: "Has the Aadhaar eKYC for this benefit been completed?",
+  askReason: "Were you told any reason for it stopping?",
+  askDocs: "Which documents do you currently have?",
+  askBioLoc: "Where did the authentication fail?",
+  askBioAge: "What is the age of the person facing this?",
+  askBioOcc: "What is their main occupation?",
+  askAttempts: "How many times has the authentication been tried?",
+  askAltAuth: "Were you offered any alternative way to verify (OTP, iris, manual)?",
+  askPayNew: "Did you recently link a new bank account to your Aadhaar?",
+  askPayBank: "Which bank should receive the payment?",
+  payBankPh: "e.g. SBI, Grameena Bank",
+  askBribeAmt: "How much was demanded?",
+  askBribePaid: "Did you end up paying?",
+  askRepeat: "Has this money been demanded more than once?",
+  askRole: "Who demanded the money?",
+  askDenReason: "What were you told when you were turned away?",
+  denReasonPh: "Briefly, what they said",
+  askCard: "What is the status of your card / entitlement?",
+  askDetWhat: "Which detail is recorded incorrectly?",
+  askDetDocs: "Which correct documents do you have to fix it?",
 };
 
 const STR_HI = {
-  "greet": "नमस्ते! मैं अधिकारAI हूँ, आपका कल्याण शिकायत सहायक। आइए मिलकर आपकी शिकायत दर्ज करें।",
-  "askName": "सबसे पहले, आपका नाम क्या है?",
-  "namePh": "अपना नाम लिखें",
-  "askState": "आप किस राज्य में हैं?",
-  "askDistrict": "और कौन-सा जिला?",
-  "askScheme": "आपको किस लाभ में दिक्कत हो रही है?",
-  "askIssue": "आपको क्या समस्या है?",
-  "voicePrompt": "अपने शब्दों में बताइए — क्या हुआ, कब और कहाँ, और आप क्या समाधान चाहते हैं। लिखें या बोलने के लिए माइक दबाएँ।",
-  "transcribing": "आपका वॉइस नोट लिखा जा रहा है…",
-  "summaryTitle": "मैंने यह समझा",
-  "confirmQ": "क्या यह सही है?",
-  "yes": "हाँ, सही है",
-  "noFix": "नहीं, सुधारें",
-  "cross": "आपके अन्य आधार-लिंक्ड लाभ भी इसी कारण प्रभावित हो सकते हैं। क्या मैं उन्हें एक साथ देखूँ?",
-  "ticketStd": "शिकायत दर्ज हो गई। जिला अधिकारी 2 कार्यदिवस में जवाब देंगे।",
-  "ticketPri": "वरिष्ठ अधिकारी को भेजा गया। 24 घंटे में जवाब मिलेगा।",
-  "welcome": "वापसी पर स्वागत है, {n}। आज कैसे मदद करें?",
-  "bribe": "आपके अधिकार के लाभ के लिए किसी को पैसे माँगने का हक नहीं। यह गोपनीय है और सीधे वरिष्ठ अधिकारी को जाएगा। हेल्पलाइन: 1947।",
-  "askDur": "यह समस्या कब से चल रही है?",
-  "askReason": "क्या आपको रोकने का कारण बताया गया था?",
-  "askDocs": "आपके पास इनमें से कौन-कौन से दस्तावेज़ हैं? सभी चुनें।",
-  "askBank": "क्या आपका बैंक खाता आधार से जुड़ा है?",
-  "jandhanInfo": "बिना जुड़े खाते के आपका लाभ नहीं मिल सकता। मैं आपको नज़दीकी शाखा में मुफ़्त जनधन खाता खुलवाने में मदद कर सकता हूँ।",
-  "askBioLoc": "प्रमाणीकरण कहाँ विफल हुआ?",
-  "askBioNature": "वास्तव में क्या हुआ?",
-  "askBioAge": "इस व्यक्ति की उम्र क्या है?",
-  "askBioOcc": "उनका मुख्य काम क्या है?",
-  "askPayBank": "भुगतान किस बैंक में आना चाहिए?",
-  "askPayNew": "क्या आपने हाल ही में आधार से नया बैंक खाता जोड़ा था?",
-  "askBribeWhere": "पैसे कहाँ माँगे गए?",
-  "askBribeAmt": "कितनी राशि माँगी गई?",
-  "askBribePaid": "क्या आपने पैसे दिए?",
-  "askDenWhere": "आपको कहाँ रोका गया?",
-  "askDenDetail": "जब आपको लौटाया गया तो क्या कहा गया?",
-  "askDetWhat": "कौन-सी जानकारी गलत दर्ज है?",
-  "askEscalateId": "जो टिकट बढ़ाना है उसकी ID बताएं।",
-  "askFeedback": "खुशी हुई। समस्या कितनी हल हुई?",
-  "payBankPh": "जैसे SBI, ग्रामीण बैंक",
-  "denDetailPh": "संक्षेप में बताएं",
-  "changeLanguage": "ठीक है! अब मैं हिंदी में जारी रखूँगा।"
+  greet: "नमस्ते! मैं अधिकारAI हूँ, आपका कल्याण शिकायत सहायक। आइए मिलकर आपकी शिकायत दर्ज करें।",
+  askPhone: "सबसे पहले, अपना फ़ोन नंबर बताएं। इससे हम आपकी सभी शिकायतें एक जगह रखेंगे।",
+  phonePh: "अपना 10 अंकों का फ़ोन नंबर लिखें",
+  askName: "धन्यवाद। और आपका नाम क्या है?",
+  namePh: "अपना नाम लिखें",
+  askContinueName: "वापसी पर स्वागत है, {n}। क्या हम इसी नाम से जारी रखें?",
+  keepName: "हाँ, {n} के रूप में जारी रखें",
+  changeName: "नहीं, दूसरा नाम इस्तेमाल करें",
+  askFlowChoice: "आज आप क्या करना चाहेंगे?",
+  optNewTicket: "नई शिकायत दर्ज करें",
+  optTrackTicket: "पुरानी शिकायत देखें",
+  noTickets: "अभी आपकी कोई पुरानी शिकायत नहीं है। आइए पहली दर्ज करें।",
+  trackSelectTitle: "स्थिति देखने के लिए शिकायत चुनें",
+  tStatusLabel: "वर्तमान स्थिति",
+  tOfficeLabel: "अभी किसके पास है",
+  tUpdatesLabel: "अब तक के अपडेट",
+  tNoUpdates: "अभी कोई अपडेट नहीं — आपकी शिकायत कतार में है।",
+  tOpenedOn: "दर्ज की गई",
+  stOpen: "खुली — अधिकारी की प्रतीक्षा",
+  stProgress: "प्रगति पर",
+  stEscalated: "वरिष्ठ अधिकारी को भेजी गई",
+  stResolved: "हल हो गई",
+  askState: "आप किस राज्य में हैं?",
+  askDistrict: "और कौन-सा जिला?",
+  askScheme: "आपको किस लाभ में दिक्कत हो रही है?",
+  askIssue: "आपको क्या समस्या है?",
+  voicePrompt: "अपने शब्दों में बताइए — क्या हुआ, कब और कहाँ, और आप क्या समाधान चाहते हैं। लिखें, या वॉइस नोट भेजने के लिए माइक दबाएँ।",
+  micHint: "लिखने के बजाय वॉइस नोट रिकॉर्ड करने के लिए माइक दबाएँ।",
+  askVoiceConsent: "क्या मैं इसे आपकी भाषा में वॉइस नोट के रूप में रिकॉर्ड करूँ?",
+  vYes: "हाँ, मेरी आवाज़ रिकॉर्ड करें",
+  vNo: "नहीं, मैं लिखूँगा",
+  recTap: "बटन दबाकर बोलें। पूरा होने पर फिर दबाएँ।",
+  recStop: "रिकॉर्ड हो रहा है… रोकने के लिए दबाएँ",
+  recSending: "आपका वॉइस नोट सहेजा जा रहा है…",
+  recFail: "मैं सुन नहीं पाया। कृपया अपनी शिकायत लिखकर बताएं।",
+  summaryTitle: "मैंने यह समझा",
+  confirmQ: "क्या यह सही है?",
+  yes: "हाँ, सही है",
+  noFix: "नहीं, सुधारें",
+  ticketStd: "शिकायत दर्ज हो गई। जिला अधिकारी 2 कार्यदिवस में जवाब देंगे।",
+  ticketPri: "वरिष्ठ अधिकारी को भेजा गया। 24 घंटे में जवाब मिलेगा।",
+  thanks: "हमारे पास आकर अपनी समस्या बताने के लिए धन्यवाद। हमारी टीम इस मुद्दे का ध्यान रखेगी और ज़रूरत होने पर आपसे संपर्क करेगी।",
+  restartHint: 'फिर से शुरू करने के लिए कभी भी "hi" लिखें।',
+  fallbackRoute: "सही जगह भेजने के लिए — बस कुछ त्वरित चयन:",
+  saveError: "शिकायत सहेजने में कुछ गड़बड़ी हुई। कृपया थोड़ी देर बाद पुनः प्रयास करें।",
+  ackFallback: "समझ गया। अधिकारी की मदद के लिए कुछ त्वरित प्रश्न।",
+  askDur: "यह समस्या कब से चल रही है?",
+  askBank: "क्या आपका बैंक खाता आधार से जुड़ा है?",
+  askEkyc: "क्या इस लाभ के लिए आधार eKYC पूरा हो चुका है?",
+  askReason: "क्या आपको रुकने का कोई कारण बताया गया था?",
+  askDocs: "आपके पास इस समय कौन-से दस्तावेज़ हैं?",
+  askBioLoc: "प्रमाणीकरण कहाँ विफल हुआ?",
+  askBioAge: "इस व्यक्ति की उम्र क्या है?",
+  askBioOcc: "उनका मुख्य काम क्या है?",
+  askAttempts: "प्रमाणीकरण कितनी बार आज़माया गया?",
+  askAltAuth: "क्या आपको सत्यापन का कोई और तरीका दिया गया (OTP, आइरिस, मैनुअल)?",
+  askPayNew: "क्या आपने हाल ही में आधार से नया बैंक खाता जोड़ा था?",
+  askPayBank: "भुगतान किस बैंक में आना चाहिए?",
+  payBankPh: "जैसे SBI, ग्रामीण बैंक",
+  askBribeAmt: "कितनी राशि माँगी गई?",
+  askBribePaid: "क्या आपने पैसे दिए?",
+  askRepeat: "क्या यह पैसा एक से अधिक बार माँगा गया?",
+  askRole: "पैसे किसने माँगे?",
+  askDenReason: "जब आपको लौटाया गया तो क्या कहा गया?",
+  denReasonPh: "संक्षेप में बताएं",
+  askCard: "आपके कार्ड / पात्रता की स्थिति क्या है?",
+  askDetWhat: "कौन-सी जानकारी गलत दर्ज है?",
+  askDetDocs: "इसे ठीक करने के लिए आपके पास कौन-से सही दस्तावेज़ हैं?",
 };
 
-const STR_TE = {
-  "greet": "నమస్తే! నేను అధికార్‌AI, మీ సంక్షేమ ఫిర్యాదు సహాయకుడిని. మీ ఫిర్యాదును కలిసి నమోదు చేద్దాం.",
-  "askName": "ముందుగా, మీ పేరు ఏమిటి?",
-  "namePh": "మీ పేరు టైప్ చేయండి",
-  "askState": "మీరు ఏ రాష్ట్రంలో ఉన్నారు?",
-  "askDistrict": "ఏ జిల్లా?",
-  "askScheme": "మీకు ఏ ప్రయోజనంలో ఇబ్బంది ఉంది?",
-  "askIssue": "మీకు ఏ సమస్య ఉంది?",
-  "voicePrompt": "మీ మాటల్లో చెప్పండి — ఏం జరిగింది, ఎప్పుడు, ఎక్కడ, ఏం పరిష్కారం కావాలి. టైప్ చేయండి లేదా మైక్ నొక్కి మాట్లాడండి.",
-  "transcribing": "మీ వాయిస్ నోట్ రాస్తున్నాం…",
-  "summaryTitle": "నేను అర్థం చేసుకున్నది",
-  "confirmQ": "ఇది సరైనదేనా?",
-  "yes": "అవును, సరైనదే",
-  "noFix": "కాదు, సరిచేయండి",
-  "cross": "మీ ఇతర ఆధార్ లింక్ ప్రయోజనాలు కూడా ఇదే కారణంతో ప్రభావితం కావచ్చు. కలిపి చూడనా?",
-  "ticketStd": "ఫిర్యాదు నమోదైంది. జిల్లా అధికారి 2 పని దినాల్లో స్పందిస్తారు.",
-  "ticketPri": "సీనియర్ అధికారికి పంపాం. 24 గంటల్లో స్పందన వస్తుంది.",
-  "welcome": "మళ్ళీ స్వాగతం, {n}. ఈరోజు ఎలా సహాయం చేయాలి?",
-  "bribe": "మీ హక్కైన ప్రయోజనానికి ఎవరూ డబ్బు అడగకూడదు. ఇది గోప్యం, నేరుగా సీనియర్ అధికారికి వెళ్తుంది. హెల్ప్‌లైన్: 1947.",
-  "askDur": "ఈ సమస్య ఎంత కాలం నుండి ఉంది?",
-  "askReason": "ఆగిపోవడానికి కారణం చెప్పారా?",
-  "askDocs": "మీ దగ్గర ఇవి ఏమేమి ఉన్నాయి? అన్నీ ఎంచుకోండి.",
-  "askBank": "మీ బ్యాంక్ ఖాతా ఆధార్‌తో అనుసంధానించబడి ఉందా?",
-  "jandhanInfo": "అనుసంధానించిన ఖాతా లేకుండా మీ ప్రయోజనం చెల్లించలేరు. నేను మీకు సమీప శాఖలో ఉచిత జన్ ధన్ ఖాతా తెరవడంలో సహాయం చేయగలను.",
-  "askBioLoc": "ధృవీకరణ ఎక్కడ విఫలమైంది?",
-  "askBioNature": "సరిగ్గా ఏం జరిగింది?",
-  "askBioAge": "ఈ వ్యక్తి వయస్సు ఎంత?",
-  "askBioOcc": "వారి ప్రధాన వృత్తి ఏమిటి?",
-  "askPayBank": "చెల్లింపు ఏ బ్యాంక్‌కు రావాలి?",
-  "askPayNew": "మీరు ఇటీవల ఆధార్‌కు కొత్త బ్యాంక్ ఖాతా అనుసంధానించారా?",
-  "askBribeWhere": "డబ్బు ఎక్కడ అడిగారు?",
-  "askBribeAmt": "ఎంత అడిగారు?",
-  "askBribePaid": "మీరు చెల్లించారా?",
-  "askDenWhere": "మీకు ఎక్కడ నిరాకరించారు?",
-  "askDenDetail": "మీరు వెనక్కి వెళ్ళినప్పుడు ఏమి చెప్పారు?",
-  "askDetWhat": "ఏ వివరాలు తప్పుగా నమోదు అయ్యాయి?",
-  "askEscalateId": "ఏ టికెట్ ఎస్కలేట్ చేయాలో దాని ID చెప్పండి.",
-  "askFeedback": "సంతోషం. సమస్య ఎంతవరకు పరిష్కారమైంది?",
-  "payBankPh": "ఉదా: SBI, గ్రామీణ బ్యాంక్",
-  "denDetailPh": "సంక్షిప్తంగా చెప్పండి",
-  "changeLanguage": "సరే! ఇప్పటి నుండి తెలుగులో కొనసాగిస్తాను."
+// ---- option-value labels (chips) -------------------------------------------
+// Keyed by the value strings used across all follow-up questions.
+type OptTable = Record<string, string>;
+
+const OPT_EN: OptTable = {
+  // duration
+  '<1m': 'Less than 1 month', '1-3m': '1–3 months', '3-6m': '3–6 months', '>6m': 'More than 6 months',
+  // shared
+  ns: 'Not sure', yes: 'Yes', no: 'No', other: 'Other',
+  // location
+  fps: 'Ration shop', bank: 'Bank', csc: 'CSC / Aadhaar centre', hosp: 'Hospital', office: 'Govt office',
+  // amount
+  '<100': 'Under ₹100', '100-500': '₹100–500', '500-1000': '₹500–1000', '>1000': 'Over ₹1000',
+  // age
+  u60: 'Below 60', '60-70': '60–70', a70: 'Above 70',
+  // occupation
+  agri: 'Agricultural labour', domestic: 'Domestic work', trade: 'Trade / shop',
+  // paid
+  refused: 'I refused',
+  // eKYC / reason / alt-auth / recent / repeat done via yes/no/ns
+  // docs
+  aadhaar_only: 'Aadhaar only', ration_card: 'Ration card', job_card: 'Job card', none: 'None of these',
+  // attempts
+  once: 'Once', few: 'A few times', many: 'Many times',
+  // card status
+  valid: 'Valid', expired: 'Expired',
+  // official role
+  dealer: 'Ration dealer', operator: 'CSC operator', official: 'Govt official',
+  // detail field
+  fld_name: 'Name', fld_dob: 'Date of birth', fld_address: 'Address', fld_bank: 'Bank details', fld_aadhaar: 'Aadhaar number',
 };
 
-const STR_TA = {
-  "greet": "வணக்கம்! நான் அதிகார்AI, உங்கள் நலத்திட்ட புகார் உதவியாளர். உங்கள் புகாரை ஒன்றாகப் பதிவு செய்வோம்.",
-  "askName": "முதலில், உங்கள் பெயர் என்ன?",
-  "namePh": "உங்கள் பெயரை உள்ளிடவும்",
-  "askState": "நீங்கள் எந்த மாநிலத்தில் உள்ளீர்கள்?",
-  "askDistrict": "எந்த மாவட்டம்?",
-  "askScheme": "எந்த நலனில் சிக்கல்?",
-  "askIssue": "என்ன பிரச்சினை?",
-  "voicePrompt": "உங்கள் சொற்களில் சொல்லுங்கள் — என்ன, எப்போது, எங்கே நடந்தது, என்ன தீர்வு வேண்டும். தட்டச்சு செய்யவும் அல்லது மைக்கை அழுத்தவும்.",
-  "transcribing": "உங்கள் குரல் குறிப்பு எழுதப்படுகிறது…",
-  "summaryTitle": "நான் புரிந்தது",
-  "confirmQ": "இது சரியா?",
-  "yes": "ஆம், சரிதான்",
-  "noFix": "இல்லை, திருத்து",
-  "cross": "உங்கள் மற்ற ஆதார் இணைப்பு நலன்களும் இதே காரணத்தால் பாதிக்கப்படலாம். ஒன்றாக சரிபார்க்கட்டுமா?",
-  "ticketStd": "புகார் பதிவாகியது. மாவட்ட அலுவலர் 2 வேலை நாட்களில் பதிலளிப்பார்.",
-  "ticketPri": "மூத்த அலுவலருக்கு அனுப்பப்பட்டது. 24 மணி நேரத்தில் பதில்.",
-  "welcome": "மீண்டும் வரவேற்கிறோம், {n}. இன்று எப்படி உதவலாம்?",
-  "bribe": "உங்கள் உரிமையான நலனுக்கு யாரும் பணம் கேட்கக் கூடாது. இது ரகசியம், மூத்த அலுவலருக்கு செல்லும். உதவி எண்: 1947.",
-  "askDur": "இந்த பிரச்சினை எவ்வளவு காலமாக உள்ளது?",
-  "askReason": "நிறுத்தியதற்கு ஏதாவது காரணம் சொன்னார்களா?",
-  "askDocs": "உங்களிடம் இவற்றில் எவை உள்ளன? எல்லாவற்றையும் தேர்வு செய்யுங்கள்.",
-  "askBank": "உங்கள் வங்கிக் கணக்கு ஆதாரோடு இணைக்கப்பட்டிருக்கிறதா?",
-  "jandhanInfo": "இணைக்கப்பட்ட கணக்கு இல்லாமல் உங்கள் நலன் வழங்க முடியாது. அருகிலுள்ள கிளையில் இலவச ஜன் தன் கணக்கு தொடங்க உதவுகிறேன்.",
-  "askBioLoc": "அங்கீகாரம் எங்கே தோல்வியடைந்தது?",
-  "askBioNature": "சரியாக என்ன நடந்தது?",
-  "askBioAge": "இவரின் வயது என்ன?",
-  "askBioOcc": "இவரின் தொழில் என்ன?",
-  "askPayBank": "பணம் எந்த வங்கிக்கு வர வேண்டும்?",
-  "askPayNew": "சமீபத்தில் ஆதாரோடு புதிய வங்கிக் கணக்கு இணைத்தீர்களா?",
-  "askBribeWhere": "பணம் எங்கே கேட்கப்பட்டது?",
-  "askBribeAmt": "எவ்வளவு கேட்டார்கள்?",
-  "askBribePaid": "நீங்கள் கொடுத்தீர்களா?",
-  "askDenWhere": "உங்களுக்கு எங்கே மறுக்கப்பட்டது?",
-  "askDenDetail": "திருப்பி அனுப்பியபோது என்ன சொன்னார்கள்?",
-  "askDetWhat": "எந்த விவரம் தவறாக பதிவு செய்யப்பட்டுள்ளது?",
-  "askEscalateId": "தீவிரமாக்க வேண்டிய Ticket ID தெரிவிக்கவும்.",
-  "askFeedback": "மகிழ்ச்சி. பிரச்சினை எந்த அளவு தீர்ந்தது?",
-  "payBankPh": "எ.கா. SBI, கிராமீண வங்கி",
-  "denDetailPh": "சுருக்கமாக சொல்லுங்கள்",
-  "changeLanguage": "சரி! இனி தமிழில் தொடர்கிறேன்."
+const OPT_HI: OptTable = {
+  '<1m': '1 महीने से कम', '1-3m': '1–3 महीने', '3-6m': '3–6 महीने', '>6m': '6 महीने से अधिक',
+  ns: 'पता नहीं', yes: 'हाँ', no: 'नहीं', other: 'अन्य',
+  fps: 'राशन दुकान', bank: 'बैंक', csc: 'CSC / आधार केंद्र', hosp: 'अस्पताल', office: 'सरकारी कार्यालय',
+  '<100': '₹100 से कम', '100-500': '₹100–500', '500-1000': '₹500–1000', '>1000': '₹1000 से अधिक',
+  u60: '60 से कम', '60-70': '60–70', a70: '70 से अधिक',
+  agri: 'खेत मज़दूरी', domestic: 'घरेलू काम', trade: 'व्यापार / दुकान',
+  refused: 'मैंने मना किया',
+  aadhaar_only: 'केवल आधार', ration_card: 'राशन कार्ड', job_card: 'जॉब कार्ड', none: 'इनमें से कोई नहीं',
+  once: 'एक बार', few: 'कुछ बार', many: 'कई बार',
+  valid: 'वैध', expired: 'समाप्त',
+  dealer: 'राशन डीलर', operator: 'CSC ऑपरेटर', official: 'सरकारी अधिकारी',
+  fld_name: 'नाम', fld_dob: 'जन्म तिथि', fld_address: 'पता', fld_bank: 'बैंक विवरण', fld_aadhaar: 'आधार संख्या',
 };
 
-const STR_BN = {
-  "greet": "নমস্কার! আমি অধিকারAI, আপনার কল্যাণ অভিযোগ সহায়ক। চলুন একসাথে আপনার অভিযোগ জানাই।",
-  "askName": "প্রথমে, আপনার নাম কী?",
-  "namePh": "আপনার নাম লিখুন",
-  "askState": "আপনি কোন রাজ্যে আছেন?",
-  "askDistrict": "কোন জেলা?",
-  "askScheme": "কোন সুবিধায় সমস্যা হচ্ছে?",
-  "askIssue": "কী সমস্যা হচ্ছে?",
-  "voicePrompt": "নিজের ভাষায় বলুন — কী হয়েছে, কখন, কোথায়, কী সমাধান চান। লিখুন বা মাইক চাপুন।",
-  "transcribing": "আপনার ভয়েস নোট লেখা হচ্ছে…",
-  "summaryTitle": "আমি যা বুঝলাম",
-  "confirmQ": "এটা ঠিক আছে?",
-  "yes": "হ্যাঁ, ঠিক আছে",
-  "noFix": "না, ঠিক করুন",
-  "cross": "আপনার অন্য আধার-যুক্ত সুবিধাও একই কারণে প্রভাবিত হতে পারে। একসাথে দেখব?",
-  "ticketStd": "অভিযোগ নথিভুক্ত হয়েছে। জেলা কর্মকর্তা ২ কর্মদিবসে সাড়া দেবেন।",
-  "ticketPri": "ঊর্ধ্বতন কর্মকর্তার কাছে পাঠানো হয়েছে। ২৪ ঘণ্টায় উত্তর পাবেন।",
-  "welcome": "ফিরে আসায় স্বাগতম, {n}। আজ কীভাবে সাহায্য করব?",
-  "bribe": "আপনার অধিকারের সুবিধার জন্য কেউ টাকা চাইতে পারে না। এটি গোপনীয় ও সরাসরি ঊর্ধ্বতন কর্মকর্তার কাছে যাবে। হেল্পলাইন: 1947।",
-  "askDur": "এই সমস্যা কতদিন ধরে চলছে?",
-  "askReason": "আপনাকে কোনো কারণ বলা হয়েছিল?",
-  "askDocs": "আপনার কাছে এগুলোর মধ্যে কোনগুলো আছে? সব বেছে নিন।",
-  "askBank": "আপনার ব্যাংক অ্যাকাউন্ট কি আধারের সাথে যুক্ত?",
-  "jandhanInfo": "লিঙ্কড অ্যাকাউন্ট ছাড়া আপনার সুবিধা দেওয়া সম্ভব নয়। নিকটতম শাখায় বিনামূল্যে জন ধন অ্যাকাউন্ট খুলতে সাহায্য করতে পারি।",
-  "askBioLoc": "প্রমাণীকরণ কোথায় ব্যর্থ হয়েছে?",
-  "askBioNature": "ঠিক কী হয়েছিল?",
-  "askBioAge": "এই ব্যক্তির বয়স কত?",
-  "askBioOcc": "তাদের প্রধান পেশা কী?",
-  "askPayBank": "কোন ব্যাংকে পেমেন্ট আসার কথা?",
-  "askPayNew": "সম্প্রতি আধারে নতুন ব্যাংক অ্যাকাউন্ট যুক্ত করেছেন?",
-  "askBribeWhere": "কোথায় টাকা চাওয়া হয়েছিল?",
-  "askBribeAmt": "কত টাকা চাওয়া হয়েছিল?",
-  "askBribePaid": "আপনি কি টাকা দিয়েছিলেন?",
-  "askDenWhere": "কোথায় আপনাকে প্রবেশ দেওয়া হয়নি?",
-  "askDenDetail": "ফিরিয়ে দেওয়ার সময় কী বলা হয়েছিল?",
-  "askDetWhat": "কোন তথ্য ভুল নথিভুক্ত হয়েছে?",
-  "askEscalateId": "যে টিকেটটি এস্কেলেট করতে চান তার ID দিন।",
-  "askFeedback": "ভালো লাগলো। সমস্যা কতটুকু সমাধান হয়েছে?",
-  "payBankPh": "যেমন SBI, গ্রামীণ ব্যাংক",
-  "denDetailPh": "সংক্ষেপে বলুন",
-  "changeLanguage": "ঠিক আছে! এখন থেকে বাংলায় চালিয়ে যাচ্ছি।"
+// ---- summary-card row headers ----------------------------------------------
+type RowTable = Record<string, string>;
+
+const ROW_EN: RowTable = {
+  issue: 'Issue', scheme: 'Scheme', duration: 'Duration', location: 'Location',
+  person_age: 'Person age', occupation: 'Occupation', bank_linked: 'Bank account',
+  ekyc_done: 'Aadhaar eKYC', reason_given: 'Reason given', docs_status: 'Documents',
+  attempts: 'Attempts', alt_auth_offered: 'Alternative offered', recent_bank_change: 'New bank linked',
+  which_bank: 'Intended bank', amount: 'Amount', paid: 'Paid?', repeat_demand: 'Repeated demand',
+  official_role: 'Demanded by', denial_reason: 'Reason for denial', card_status: 'Card status',
+  detail_field: 'Wrong detail', docs_available: 'Documents to fix', original_text: 'In their words',
 };
 
-export const STR: Record<string, typeof STR_EN> = {
-  en: STR_EN, hi: STR_HI, te: STR_TE, ta: STR_TA, bn: STR_BN,
+const ROW_HI: RowTable = {
+  issue: 'समस्या', scheme: 'योजना', duration: 'अवधि', location: 'स्थान',
+  person_age: 'व्यक्ति की उम्र', occupation: 'व्यवसाय', bank_linked: 'बैंक खाता',
+  ekyc_done: 'आधार eKYC', reason_given: 'बताया गया कारण', docs_status: 'दस्तावेज़',
+  attempts: 'प्रयास', alt_auth_offered: 'विकल्प दिया गया', recent_bank_change: 'नया बैंक जुड़ा',
+  which_bank: 'इच्छित बैंक', amount: 'राशि', paid: 'भुगतान किया?', repeat_demand: 'बार-बार माँग',
+  official_role: 'किसने माँगा', denial_reason: 'मना करने का कारण', card_status: 'कार्ड स्थिति',
+  detail_field: 'गलत जानकारी', docs_available: 'सुधार हेतु दस्तावेज़', original_text: 'उनके शब्दों में',
 };
+
+// ---- registries (languages added below via extendI18n) ----------------------
+export const STR: Record<string, typeof STR_EN> = { en: STR_EN, hi: STR_HI };
+const OPT: Record<string, OptTable> = { en: OPT_EN, hi: OPT_HI };
+const ROW: Record<string, RowTable> = { en: ROW_EN, hi: ROW_HI };
+
+// Internal: register a language's three tables in one call.
+export function __register(
+  code: string, str: typeof STR_EN, opt: OptTable, row: RowTable,
+): void {
+  STR[code] = str; OPT[code] = opt; ROW[code] = row;
+}
+
+// Internal: point a language code at an already-registered one (e.g. Bhojpuri /
+// Maithili reuse Hindi — the natural default when no distinct word exists).
+export function __alias(code: string, from: string): void {
+  if (STR[from]) STR[code] = STR[from];
+  if (OPT[from]) OPT[code] = OPT[from];
+  if (ROW[from]) ROW[code] = ROW[from];
+}
+
+// Exported so the shared type is reusable by the companion language tables.
+export type StrTable = typeof STR_EN;
+export type { OptTable, RowTable };
 
 export const WELCOME =
   'Welcome to AdhikarAI. We are here to assist you with any issue related to your government welfare benefits. Please select your preferred language to continue.';
 
 export function strings(lang: string): typeof STR_EN {
   return STR[lang] || STR.en;
+}
+
+// Chip label for an option value in the citizen's language, English fallback.
+export function optLabel(lang: string, value: string): string {
+  return (OPT[lang] && OPT[lang][value]) || OPT.en[value] || value;
+}
+
+// Summary-card row header in the citizen's language, English fallback.
+export function rowLabel(lang: string, key: string): string {
+  return (ROW[lang] && ROW[lang][key]) || ROW.en[key] || key;
+}
+
+// Fill {n}-style placeholders.
+export function fmt(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
 }

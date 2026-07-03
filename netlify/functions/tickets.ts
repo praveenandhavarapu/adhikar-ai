@@ -26,11 +26,20 @@ export const handler: Handler = async (event) => {
   }
 
   if (event.httpMethod === 'GET') {
-    const { data, error } = await supabase
+    // Optional ?phone= filter: a citizen tracking their own complaints, newest
+    // first (no priority sort — they want chronological). Without it, this is
+    // the officer dashboard: priority first, then newest.
+    const phone = (event.queryStringParameters?.phone || '').replace(/\D/g, '');
+
+    let query = supabase
       .from('tickets')
-      .select('*')
-      .order('priority', { ascending: false })
-      .order('created_at', { ascending: false });
+      .select('*, voice_clips(*)');
+
+    query = phone
+      ? query.eq('phone', phone).order('created_at', { ascending: false })
+      : query.order('priority', { ascending: false }).order('created_at', { ascending: false });
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('tickets list error:', error);
@@ -56,7 +65,21 @@ export const handler: Handler = async (event) => {
   const allowed: TicketStatus[] = ['open', 'progress', 'escalated', 'resolved'];
   if (!id || !allowed.includes(status)) return bad('Valid id and status are required');
 
-  const { error } = await supabase.from('tickets').update({ status }).eq('id', id);
+  // Append this change to the ticket's update history (timeline) so both the
+  // officer and the citizen's tracking view can see what happened and when.
+  const { data: existing, error: readErr } = await supabase
+    .from('tickets')
+    .select('updates')
+    .eq('id', id)
+    .single();
+  if (readErr) {
+    console.error('tickets read-before-update error:', readErr);
+    return bad('Could not update the ticket', 500);
+  }
+  const history = Array.isArray(existing?.updates) ? existing.updates : [];
+  const updates = [...history, { ts: new Date().toISOString(), status }];
+
+  const { error } = await supabase.from('tickets').update({ status, updates }).eq('id', id);
   if (error) {
     console.error('tickets update error:', error);
     return bad('Could not update the ticket', 500);

@@ -4,7 +4,7 @@
 // ============================================================================
 import { useEffect, useRef, useState } from 'react';
 import { LANGS } from '../../data/languages';
-import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
+import { useVoiceCapture, type VoiceResult } from '../../hooks/useVoiceCapture';
 import type { ChatMessage, Prompt, PromptOption } from './chatTypes';
 
 interface ViewState {
@@ -21,6 +21,8 @@ interface Props {
   onBack: () => void;
   onPickLanguage: (code: string) => void;
   onSubmit: (value: string, label?: string, isVoice?: boolean) => void;
+  onMicRequest: () => void;               // tapping mic → flow asks voice consent
+  onVoiceRecorded: (r: VoiceResult) => void; // a clip finished recording
   onChangeLang: () => void;
   onCloseLangSheet: () => void;
   langCodeShort: string;
@@ -108,13 +110,25 @@ function Bubble({ m }: { m: ChatMessage }) {
       </div>
     );
   }
-  if (m.kind === 'user' || m.kind === 'voice') {
+  if (m.kind === 'voice') {
+    // A recorded voice note: play the actual clip, never show a transcript.
+    return (
+      <div style={{ ...userBubble, flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+        <span style={tailRight} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: GREEN, fontSize: 16 }}>🎙</span>
+          {m.audioUrl
+            ? <audio controls src={m.audioUrl} style={{ height: 34, maxWidth: 200 }} />
+            : <span className="adh-native" style={{ fontSize: 13, color: '#5b7488' }}>{m.text || 'Voice note'}</span>}
+        </div>
+        <Time t={m.time} sent />
+      </div>
+    );
+  }
+  if (m.kind === 'user') {
     return (
       <div style={userBubble}>
         <span style={tailRight} />
-        {m.kind === 'voice' && (
-          <span style={{ marginRight: 6, color: GREEN }}>🎙</span>
-        )}
         <span className="adh-native" style={{ fontSize: 14.2, lineHeight: 1.4, color: '#111b21' }}>{m.text}</span>
         <Time t={m.time} sent />
       </div>
@@ -127,7 +141,7 @@ function Bubble({ m }: { m: ChatMessage }) {
         {(m.rows || []).map(([k, v], i) => (
           <div key={i} style={{ display: 'flex', gap: 8, padding: '4px 0', borderBottom: i < (m.rows!.length - 1) ? '1px solid #eef2f6' : 'none' }}>
             <span style={{ fontSize: 12, color: '#6a8199', minWidth: 92, fontWeight: 600 }}>{k}</span>
-            <span className="adh-native" style={{ fontSize: 12.5, color: '#23323f', flex: 1 }}>{v}</span>
+            <span className="adh-native" style={{ fontSize: 12.5, color: '#23323f', flex: 1, whiteSpace: 'pre-line' }}>{v}</span>
           </div>
         ))}
       </div>
@@ -161,12 +175,8 @@ function Time({ t, sent }: { t?: string; sent?: boolean }) {
 
 // ---- input area ------------------------------------------------------------
 function InputArea(p: Props) {
-  const { prompt, lang, busy } = p.state;
+  const { prompt, busy } = p.state;
   const [draft, setDraft] = useState('');
-
-  const speech = useSpeechRecognition(lang, (text) => {
-    setDraft((d) => (d ? d + ' ' : '') + text);
-  });
 
   if (!prompt) {
     return <div style={{ height: 8, background: '#f0f0f0', flexShrink: 0 }} />;
@@ -176,6 +186,11 @@ function InputArea(p: Props) {
     p.onSubmit(value, label, voice);
     setDraft('');
   };
+
+  // dedicated voice-note recorder
+  if (prompt.type === 'voice-record') {
+    return <VoiceRecorder p={p} prompt={prompt} />;
+  }
 
   // chips / menu / lang-list
   if (prompt.type === 'chips' || prompt.type === 'menu' || prompt.type === 'lang-list') {
@@ -192,8 +207,9 @@ function InputArea(p: Props) {
     );
   }
 
-  // text / voicetext
-  const showMic = (prompt.type === 'voicetext' || prompt.mic) && speech.supported;
+  // text / voicetext. The mic now asks for consent to record a voice note
+  // instead of transcribing into the box (handled by the flow engine).
+  const showMic = prompt.type === 'voicetext' || prompt.mic;
   return (
     <div style={{ flexShrink: 0, background: '#f0f0f0', padding: '9px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
       <input
@@ -201,7 +217,7 @@ function InputArea(p: Props) {
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim() && !busy) send(draft.trim(), draft.trim()); }}
-        placeholder={speech.listening ? 'Listening…' : (prompt.placeholder || 'Type a message')}
+        placeholder={prompt.placeholder || 'Type a message'}
         disabled={busy}
         style={{
           flex: 1, border: 'none', borderRadius: 22, padding: '11px 16px', fontSize: 14,
@@ -210,13 +226,13 @@ function InputArea(p: Props) {
       />
       {showMic && (
         <button
-          onClick={() => speech.listening ? speech.stop() : speech.start()}
-          aria-label="Speak"
+          onClick={() => !busy && p.onMicRequest()}
+          aria-label="Send a voice note"
+          disabled={busy}
           style={{
-            all: 'unset', cursor: 'pointer', width: 44, height: 44, borderRadius: '50%',
-            background: speech.listening ? '#d62828' : GREEN, color: '#fff', display: 'flex',
+            all: 'unset', cursor: busy ? 'default' : 'pointer', width: 44, height: 44, borderRadius: '50%',
+            background: GREEN, color: '#fff', display: 'flex',
             alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            animation: speech.listening ? 'adhpulse 1.2s infinite' : 'none',
           }}
         >🎙</button>
       )}
@@ -229,6 +245,36 @@ function InputArea(p: Props) {
           background: GREEN, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}
       >{busy ? <span className="adh-spinner" /> : '➤'}</button>
+    </div>
+  );
+}
+
+// ---- voice recorder --------------------------------------------------------
+function VoiceRecorder({ p, prompt }: { p: Props; prompt: Prompt }) {
+  const { lang, busy } = p.state;
+  const voice = useVoiceCapture(lang, (result) => p.onVoiceRecorded(result));
+
+  return (
+    <div style={{ flexShrink: 0, background: '#f0f0f0', padding: '14px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <div className="adh-native" style={{ fontSize: 12.5, fontWeight: 600, color: '#0B3C6B', textAlign: 'center', lineHeight: 1.4 }}>
+        {voice.recording ? (prompt.stopLabel || 'Recording… tap to stop') : (prompt.recordHint || 'Tap to record')}
+      </div>
+      <button
+        onClick={() => (voice.recording ? voice.stop() : voice.start())}
+        disabled={busy || !voice.supported}
+        aria-label={voice.recording ? 'Stop recording' : 'Start recording'}
+        style={{
+          all: 'unset', cursor: busy ? 'default' : 'pointer', width: 64, height: 64, borderRadius: '50%',
+          background: voice.recording ? '#d62828' : GREEN, color: '#fff', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', fontSize: 26,
+          animation: voice.recording ? 'adhpulse 1.2s infinite' : 'none',
+        }}
+      >{voice.recording ? '■' : '🎙'}</button>
+      {!voice.supported && (
+        <div style={{ fontSize: 11, color: '#c0392b', textAlign: 'center' }}>
+          Recording isn’t supported on this browser.
+        </div>
+      )}
     </div>
   );
 }
