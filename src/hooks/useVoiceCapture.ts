@@ -11,6 +11,15 @@
 // The transcript is best-effort: on browsers without speech recognition the
 // clip is still recorded, and the caller falls back to asking the citizen to
 // type when no transcript comes back.
+//
+// RELIABILITY NOTE: speech recognition delivers its results asynchronously, so
+// we must NOT read the transcript the instant the recorder stops — the final
+// (and even some interim) results often arrive a beat later. Previously that
+// race made the transcript come back empty even when the citizen spoke clearly,
+// so the bot kept asking them to repeat. We now (a) capture interim results too
+// so nothing is lost, and (b) wait for BOTH the audio blob to be ready AND the
+// recogniser to actually end (with a safety timeout) before reporting the
+// result.
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -53,10 +62,18 @@ export function useVoiceCapture(
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
-  const transcriptRef = useRef<string>('');
+  const finalRef = useRef<string>('');       // finalised recognition results
+  const interimRef = useRef<string>('');     // latest un-finalised results
   const startedAtRef = useRef<number>(0);
   const recognitionRef = useRef<any>(null);
   const mimeRef = useRef<string>('');
+
+  // Coordination state so we only report once both halves are ready.
+  const blobRef = useRef<Blob | null>(null);
+  const usedMimeRef = useRef<string>('');
+  const recognitionDoneRef = useRef<boolean>(false);
+  const doneRef = useRef<boolean>(false);
+  const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setSupported(
@@ -66,15 +83,41 @@ export function useVoiceCapture(
   }, []);
 
   const cleanup = useCallback(() => {
+    if (finishTimerRef.current) { clearTimeout(finishTimerRef.current); finishTimerRef.current = null; }
     try { recognitionRef.current?.stop(); } catch { /* no-op */ }
     recognitionRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   }, []);
 
+  // Emit the result once the audio blob exists AND recognition has ended
+  // (or there is no recogniser / the safety timeout fired). Guarded so it runs
+  // exactly once per recording.
+  const finalize = useCallback(() => {
+    if (doneRef.current) return;
+    if (!blobRef.current) return;                 // recorder hasn't stopped yet
+    if (recognitionRef.current && !recognitionDoneRef.current) return; // still flushing
+    doneRef.current = true;
+
+    const transcript = [finalRef.current.trim(), interimRef.current.trim()]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    const durationMs = Date.now() - startedAtRef.current;
+    const blob = blobRef.current;
+    const usedMime = usedMimeRef.current || 'audio/webm';
+    cleanup();
+    setRecording(false);
+    onDone({ blob, mime: usedMime, transcript, durationMs });
+  }, [cleanup, onDone]);
+
   const start = useCallback(async () => {
     chunksRef.current = [];
-    transcriptRef.current = '';
+    finalRef.current = '';
+    interimRef.current = '';
+    blobRef.current = null;
+    recognitionDoneRef.current = false;
+    doneRef.current = false;
     const mime = pickMime();
     mimeRef.current = mime;
 
@@ -85,12 +128,9 @@ export function useVoiceCapture(
     recorderRef.current = recorder;
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
     recorder.onstop = () => {
-      const usedMime = recorder.mimeType || mime || 'audio/webm';
-      const blob = new Blob(chunksRef.current, { type: usedMime });
-      const durationMs = Date.now() - startedAtRef.current;
-      cleanup();
-      setRecording(false);
-      onDone({ blob, mime: usedMime, transcript: transcriptRef.current.trim(), durationMs });
+      usedMimeRef.current = recorder.mimeType || mime || 'audio/webm';
+      blobRef.current = new Blob(chunksRef.current, { type: usedMimeRef.current });
+      finalize();
     };
 
     // Parallel silent transcription (best-effort).
@@ -100,28 +140,51 @@ export function useVoiceCapture(
         const rec = new SR();
         rec.lang = LOCALE[lang] || 'hi-IN';
         rec.continuous = true;
-        rec.interimResults = false;
+        rec.interimResults = true;   // capture speech even if no "final" fires before stop
         rec.maxAlternatives = 1;
         rec.onresult = (e: any) => {
+          let interim = '';
           for (let i = e.resultIndex; i < e.results.length; i++) {
-            const chunk = e.results[i][0]?.transcript || '';
-            if (chunk) transcriptRef.current += (transcriptRef.current ? ' ' : '') + chunk.trim();
+            const res = e.results[i];
+            const chunk = (res[0]?.transcript || '').trim();
+            if (!chunk) continue;
+            if (res.isFinal) finalRef.current += (finalRef.current ? ' ' : '') + chunk;
+            else interim += (interim ? ' ' : '') + chunk;
           }
+          interimRef.current = interim;
         };
-        rec.onerror = () => { /* keep recording audio even if STT fails */ };
+        // If recognition drops out on its own, don't block finalisation.
+        rec.onerror = () => { recognitionDoneRef.current = true; finalize(); };
+        rec.onend = () => { recognitionDoneRef.current = true; finalize(); };
         recognitionRef.current = rec;
         rec.start();
-      } catch { /* STT unavailable — audio still records */ }
+      } catch {
+        recognitionDoneRef.current = true; // STT unavailable — audio still records
+      }
+    } else {
+      recognitionDoneRef.current = true;
     }
 
     startedAtRef.current = Date.now();
     recorder.start();
     setRecording(true);
-  }, [lang, onDone, cleanup]);
+  }, [lang, finalize]);
 
   const stop = useCallback(() => {
+    // Stop the recogniser first so its final results flush, then the recorder.
+    try { recognitionRef.current?.stop(); } catch { /* no-op */ }
     try { recorderRef.current?.stop(); } catch { setRecording(false); }
-  }, []);
+    // Safety net: never hang if onend/onstop don't fire (some mobile browsers).
+    if (finishTimerRef.current) clearTimeout(finishTimerRef.current);
+    finishTimerRef.current = setTimeout(() => {
+      recognitionDoneRef.current = true;
+      if (!blobRef.current && chunksRef.current.length) {
+        usedMimeRef.current = mimeRef.current || 'audio/webm';
+        blobRef.current = new Blob(chunksRef.current, { type: usedMimeRef.current });
+      }
+      finalize();
+    }, 1800);
+  }, [finalize]);
 
   useEffect(() => () => cleanup(), [cleanup]);
 

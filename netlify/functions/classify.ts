@@ -30,6 +30,8 @@ ISSUES (pick exactly one "issue"):
 
 Set "priority": true ONLY for bribe / corruption.
 
+Be decisive. Indian welfare complaints almost always map to one of the schemes and issues above — commit to the single best-fitting category rather than defaulting to "other". Use scheme "other" or issue "other" ONLY when no listed category could reasonably apply. Common mappings: "ration/anaj/PDS/food grain not received" → pds + stopped; "pension/vridha/vidhwa not coming" → nsap + stopped; "MGNREGA/rozgar/wages/job card payment not paid" → mgnrega + payment; "fingerprint/angutha/biometric not working at shop" → biometric; "asked for money/rishwat/bribe/commission" → bribe; "PM-KISAN kisan installment/kist" → pmkisan + payment; "Ayushman/hospital refused treatment" → pmjay + denied; "gas/LPG/Ujjwala" → ujjwala; "house/awas/PMAY" → awas; "name/DOB/address/aadhaar recorded wrong" → details.
+
 Extract any of these into "extracted" (omit if absent): duration, location, amount, which_bank, person_age, occupation, paid, bank_linked, ekyc_done, reason_given, docs_status, attempts, alt_auth_offered, recent_bank_change, repeat_demand, official_role, denial_reason, card_status, docs_available, detail_field.
 
 "missing": list which of the extractable fields are relevant to this issue type but NOT present in the message, so the app can ask follow-ups. Keep it short.

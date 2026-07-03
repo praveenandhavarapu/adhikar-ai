@@ -24,6 +24,7 @@ import {
 } from '../../lib/api';
 import {
   getDeviceIdentity, saveDeviceIdentity, normalizePhone,
+  getStoredLang, saveStoredLang, parseSpokenName,
 } from '../../lib/identity';
 import { blobToBase64, type VoiceResult } from '../../hooks/useVoiceCapture';
 import type {
@@ -157,20 +158,32 @@ export default function CitizenApp() {
 
   // ---- boot ----------------------------------------------------------------
   useEffect(() => {
-    botSay([WELCOME], () => {
-      setPrompt({
-        type: 'lang-list',
-        options: LANGS.map((L) => ({ value: L.code, label: L.native, sub: L.roman })),
+    // We only ask for a language once. If the citizen chose one on a previous
+    // visit, reuse it and go straight into the chat — they can still switch it
+    // any time from the toggle in the top-right of the chat header.
+    const saved = getStoredLang();
+    if (saved) {
+      applyLanguage(saved, false);
+    } else {
+      botSay([WELCOME], () => {
+        setPrompt({
+          type: 'lang-list',
+          options: LANGS.map((L) => ({ value: L.code, label: L.native, sub: L.roman })),
+        });
       });
-    });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- language pick -------------------------------------------------------
-  const pickLanguage = (code: string) => {
+  // `announce` echoes the chosen language as a user bubble (true when the
+  // citizen actively taps a language); on an automatic reuse at boot we stay
+  // silent and drop straight into the greeting.
+  const applyLanguage = (code: string, announce: boolean) => {
     const real = resolveLang(code);
     const L = LANGS.find((x) => x.code === code);
-    dispatch({ type: 'pushUser', text: L ? L.native : 'English' });
+    if (announce) dispatch({ type: 'pushUser', text: L ? L.native : 'English' });
+    saveStoredLang(real);
     dispatch({ type: 'set', patch: { lang: real, stage: 'chat', langSheetOpen: false } });
     dispatch({ type: 'mergeData', data: { lang: real } });
     const S = strings(real);
@@ -193,6 +206,8 @@ export default function CitizenApp() {
       botSay([S.greet, S.askPhone], () => setPrompt({ type: 'text', placeholder: S.phonePh }));
     }
   };
+
+  const pickLanguage = (code: string) => applyLanguage(code, true);
 
   // ---- the main engine -----------------------------------------------------
   const goTo = (step: string) => {
@@ -252,6 +267,18 @@ export default function CitizenApp() {
     }));
   };
 
+  // Store the citizen's name and move on. Used by both the typed answer and the
+  // spoken answer (the caller has already shown the user bubble).
+  const finishName = (name: string) => {
+    const d = stateRef.current.data;
+    dispatch({ type: 'mergeData', data: { name } });
+    saveDeviceIdentity({ phone: d.phone || '', name });
+    // Returning citizen who changed their name → back to the choice menu.
+    // First-time citizen → straight into raising their first complaint.
+    if (d._returning) goToFlowChoice();
+    else goTo('state');
+  };
+
   // ---- field key -> follow-up steps relevant per issue ---------------------
   const followsForIssue = (issue: IssueCode): FollowKey[] => {
     switch (issue) {
@@ -289,7 +316,7 @@ export default function CitizenApp() {
         dispatch({ type: 'mergeData', data: { phone } });
         const S = strings(stateRef.current.lang);
         dispatch({ type: 'set', patch: { step: 'name' } });
-        botSay(S.askName, () => setPrompt({ type: 'text', placeholder: S.namePh }));
+        botSay(S.askName, () => setPrompt({ type: 'text', placeholder: S.namePh, mic: true }));
         break;
       }
       case 'continueName':
@@ -298,19 +325,13 @@ export default function CitizenApp() {
         } else {
           const S = strings(stateRef.current.lang);
           dispatch({ type: 'set', patch: { step: 'name' } });
-          botSay(S.askName, () => setPrompt({ type: 'text', placeholder: S.namePh }));
+          botSay(S.askName, () => setPrompt({ type: 'text', placeholder: S.namePh, mic: true }));
         }
         break;
-      case 'name': {
-        const d = stateRef.current.data;
-        dispatch({ type: 'mergeData', data: { name: label } });
-        saveDeviceIdentity({ phone: d.phone || '', name: label });
-        // Returning citizen who changed their name → back to the choice menu.
-        // First-time citizen → straight into raising their first complaint.
-        if (d._returning) goToFlowChoice();
-        else goTo('state');
+      case 'name':
+        // Handles "My name is Praveen" / "मेरा नाम प्रवीण है" → "Praveen".
+        finishName(parseSpokenName(label) || label);
         break;
-      }
       case 'flowChoice':
         if (value === 'track') handleTrack();
         else goTo('state');
@@ -353,8 +374,19 @@ export default function CitizenApp() {
 
   // ---- voice note capture --------------------------------------------------
   const onMicRequest = () => {
-    if (stateRef.current.step !== 'describe' || stateRef.current.busy) return;
+    if (stateRef.current.busy) return;
+    const step = stateRef.current.step;
     const S = strings(stateRef.current.lang);
+
+    // Voice answer for the name question — record, transcribe, extract the name.
+    // No consent/upload here; a name is short and never stored as audio.
+    if (step === 'name') {
+      dispatch({ type: 'set', patch: { step: 'nameRecord' } });
+      setPrompt({ type: 'voice-record', recordHint: S.recTap, stopLabel: S.recStop });
+      return;
+    }
+
+    if (step !== 'describe') return;
     dispatch({ type: 'set', patch: { step: 'voiceConsent' } });
     botSay(S.askVoiceConsent, () => setPrompt({
       type: 'chips',
@@ -370,6 +402,21 @@ export default function CitizenApp() {
 
   const onVoiceRecorded = async (result: VoiceResult) => {
     const S = strings(stateRef.current.lang);
+
+    // Spoken name answer — pull the name out of the transcript and continue.
+    if (stateRef.current.step === 'nameRecord') {
+      const name = parseSpokenName(result.transcript || '');
+      if (name) {
+        dispatch({ type: 'pushUser', text: name });
+        dispatch({ type: 'set', patch: { step: 'name' } });
+        finishName(name);
+      } else {
+        dispatch({ type: 'set', patch: { step: 'name' } });
+        botSay(S.recFail, () => setPrompt({ type: 'text', placeholder: S.namePh, mic: true }));
+      }
+      return;
+    }
+
     const d = stateRef.current.data;
     const url = URL.createObjectURL(result.blob);
     dispatch({ type: 'pushCard', msg: { kind: 'voice', audioUrl: url, time: now() } });

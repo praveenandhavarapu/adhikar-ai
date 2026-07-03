@@ -4,7 +4,11 @@
 // ============================================================================
 import type { ClassifyResult, CreateTicketInput, Ticket } from './types';
 
-const CONFIDENCE_FLOOR = 0.6;
+// Below this the classification is too shaky to route automatically and we fall
+// back to the guided menus. Kept deliberately low: when the model has committed
+// to a concrete scheme/issue we'd rather route it than send a citizen who spoke
+// a perfectly clear complaint back through the manual taps.
+const CONFIDENCE_FLOOR = 0.4;
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -27,7 +31,12 @@ export async function classifyGrievance(
       '/api/classify',
       { text, lang },
     );
-    if (result._fallback || result.confidence < CONFIDENCE_FLOOR) return null;
+    // The classifier errored server-side — fall back to the guided menus.
+    if (result._fallback) return null;
+    // Nothing concrete was identified — let the citizen pick from the menus.
+    if (result.scheme === 'other' && result.issue === 'other') return null;
+    // A concrete scheme/issue was found but the model is genuinely unsure.
+    if (result.confidence < CONFIDENCE_FLOOR) return null;
     return result;
   } catch (err) {
     console.error('classifyGrievance failed:', err);

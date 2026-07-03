@@ -5,7 +5,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 
-export const MODEL = 'claude-sonnet-4-6';
+// Current Anthropic model. Overridable via env so it can be updated without a
+// code change when Anthropic ships a new version (the old hardcoded id had been
+// deprecated, which silently broke classification). Keep this current.
+export const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
 
 export function getAnthropic(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
