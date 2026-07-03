@@ -30,16 +30,20 @@ ISSUES (pick exactly one "issue"):
 
 Set "priority": true ONLY for bribe / corruption.
 
-Extract any of these into "extracted" (omit if absent): duration, location, amount, bank, person_age, occupation, paid, bank_linked, detail_field.
+Be decisive. Indian welfare complaints almost always map to one of the schemes and issues above — commit to the single best-fitting category rather than defaulting to "other". Use scheme "other" or issue "other" ONLY when no listed category could reasonably apply. Common mappings: "ration/anaj/PDS/food grain not received" → pds + stopped; "pension/vridha/vidhwa not coming" → nsap + stopped; "MGNREGA/rozgar/wages/job card payment not paid" → mgnrega + payment; "fingerprint/angutha/biometric not working at shop" → biometric; "asked for money/rishwat/bribe/commission" → bribe; "PM-KISAN kisan installment/kist" → pmkisan + payment; "Ayushman/hospital refused treatment" → pmjay + denied; "gas/LPG/Ujjwala" → ujjwala; "house/awas/PMAY" → awas; "name/DOB/address/aadhaar recorded wrong" → details.
 
-"missing": list which of [duration, location, amount, person_age, occupation, bank_linked, detail_field] are relevant to this issue type but NOT present in the message, so the app can ask follow-ups. Keep it short.
+Extract any of these into "extracted" (omit if absent): duration, location, amount, which_bank, person_age, occupation, paid, bank_linked, ekyc_done, reason_given, docs_status, attempts, alt_auth_offered, recent_bank_change, repeat_demand, official_role, denial_reason, card_status, docs_available, detail_field.
+
+"missing": list which of the extractable fields are relevant to this issue type but NOT present in the message, so the app can ask follow-ups. Keep it short.
 
 "english_summary": ONE clear English sentence an officer can read.
+
+"citizen_ack": ONE warm, short sentence acknowledging what you understood, written in the SAME language as the citizen's complaint (use the language hint). Reference the benefit and the problem in plain words. No English unless the complaint itself is English.
 
 "confidence": 0..1 — your certainty in the scheme+issue classification. Use < 0.6 only when genuinely ambiguous.
 
 Respond with ONLY a JSON object, no prose, no markdown:
-{"scheme","issue","confidence","english_summary","extracted":{},"missing":[],"priority"}`;
+{"scheme","issue","confidence","english_summary","citizen_ack","extracted":{},"missing":[],"priority"}`;
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return preflight();
@@ -72,6 +76,7 @@ export const handler: Handler = async (event) => {
     result.issue = result.issue || 'other';
     result.confidence = typeof result.confidence === 'number' ? result.confidence : 0.5;
     result.english_summary = result.english_summary || text;
+    result.citizen_ack = result.citizen_ack || '';
     result.extracted = result.extracted || {};
     result.missing = Array.isArray(result.missing) ? result.missing : [];
     result.priority = result.issue === 'bribe' ? true : !!result.priority;
@@ -82,7 +87,7 @@ export const handler: Handler = async (event) => {
     // Signal the front-end to fall back to the manual menu path.
     return ok({
       scheme: 'other', issue: 'other', confidence: 0,
-      english_summary: text, extracted: {}, missing: [], priority: false,
+      english_summary: text, citizen_ack: '', extracted: {}, missing: [], priority: false,
       _fallback: true,
     });
   }

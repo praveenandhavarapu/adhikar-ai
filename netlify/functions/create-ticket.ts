@@ -70,19 +70,26 @@ export const handler: Handler = async (event) => {
 
   // ---- Persist -------------------------------------------------------------
   const id = genId();
+  const status = input.priority ? 'escalated' : 'open';
+  // Mask the self-declared phone for officer display (keep last 4 visible).
+  const phone = (input.phone || '').replace(/\D/g, '');
+  const masked = phone
+    ? '•••• ••' + phone.slice(-4, -2) + ' ' + phone.slice(-2)
+    : '•••• ••' + Math.floor(10 + Math.random() * 89) + ' ' + Math.floor(10 + Math.random() * 89);
   const row = {
     id,
     name: input.name,
+    phone,
     lang: input.lang,
     lang_label: langLabel(input.lang),
     state: input.state,
     district: input.district,
     scheme: input.scheme,
     issue: input.issue,
-    status: input.priority ? 'escalated' : 'open',
+    status,
     priority: input.priority,
     sla: input.priority ? 'pri' : 'std',
-    contact_masked: '•••• ••' + Math.floor(10 + Math.random() * 89) + ' ' + Math.floor(10 + Math.random() * 89),
+    contact_masked: masked,
     route: routeFor(input.scheme, input.issue, input.district),
     original_text: input.original_text || '',
     english_summary: input.english_summary || '',
@@ -90,12 +97,22 @@ export const handler: Handler = async (event) => {
     ai_root_cause: analysis.root_cause || '',
     ai_suggested_resolution: analysis.suggested_resolution || '',
     ai_cross_scheme: Array.isArray(analysis.cross_scheme) ? analysis.cross_scheme : [],
+    updates: [{ ts: new Date().toISOString(), status }],
   };
 
   try {
     const supabase = getSupabase();
     const { error } = await supabase.from('tickets').insert(row);
     if (error) throw error;
+
+    // Link an uploaded voice note to this ticket (best-effort — ticket already saved).
+    if (input.voice_clip_id) {
+      const { error: linkErr } = await supabase
+        .from('voice_clips')
+        .update({ ticket_id: id })
+        .eq('id', input.voice_clip_id);
+      if (linkErr) console.error('voice clip link error (ticket still saved):', linkErr);
+    }
   } catch (err) {
     console.error('supabase insert error:', err);
     return bad('Could not save the complaint. Please try again.', 500);

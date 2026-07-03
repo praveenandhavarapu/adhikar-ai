@@ -33,9 +33,10 @@ export const langCodeShort = (code: string): string => {
   return m[code] || 'EN';
 };
 
-// Languages with full localized copy. Others fall back to Hindi for UI copy
-// while the AI still understands and replies in the citizen's actual language.
+// Every language in LANGS has full localized UI copy (see data/i18n.ts) and the
+// AI classifier understands + replies in the citizen's actual selected language.
+// Only "other" (not listed) has no locale to target, so it falls back to English.
 export const resolveLang = (code: string): string => {
-  if (code === 'other' || code === 'en') return 'en';
-  return ['hi', 'te', 'ta', 'bn'].includes(code) ? code : 'hi';
+  if (code === 'other') return 'en';
+  return LANGS.some((l) => l.code === code) ? code : 'en';
 };

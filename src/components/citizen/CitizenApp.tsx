@@ -1,31 +1,81 @@
 // ============================================================================
 // CitizenApp — the WhatsApp-style grievance flow.
 //
-// Flow: language → name → state → district → FREE-TEXT (live NLU) → follow-ups
-//       for any fields the AI couldn't extract → summary → ticket.
+// Flow: language → (first visit: phone + name │ return visit: confirm name)
+//       → choose: raise new complaint OR track an old one
+//   New:   state → district → FREE-TEXT / voice note (live NLU) → follow-ups
+//          for fields the AI couldn't extract → summary → ticket → thank-you.
+//   Track: pick a past complaint → see its status, office and update history.
 //
-// The AI is CENTRAL here: the citizen describes the problem in their own words
-// and the model classifies scheme + issue and extracts fields. If confidence
-// is low or the model is unavailable, we fall back to the guided menus so the
-// flow never dead-ends.
+// Everything the citizen hears/reads is localized to their selected language
+// (data/i18n.ts + data/schemes.ts); the dynamic "here's what I understood"
+// acknowledgment is written by the AI directly in that language.
 // ============================================================================
 import { useEffect, useReducer, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LANGS, langCodeShort, resolveLang } from '../../data/languages';
 import { STATES, districtsFor } from '../../data/geography';
-import { SCHEMES, ISSUES, schemeLong, issueLabel } from '../../data/schemes';
-import { strings, WELCOME } from '../../data/i18n';
-import { classifyGrievance, createTicket } from '../../lib/api';
+import {
+  SCHEMES, ISSUES, schemeLabelLocalized, issueLabelLocalized,
+} from '../../data/schemes';
+import { strings, optLabel, rowLabel, fmt, WELCOME, type StrKey } from '../../data/i18n';
+import {
+  classifyGrievance, createTicket, uploadVoiceClip, fetchTicketsByPhone,
+} from '../../lib/api';
+import {
+  getDeviceIdentity, saveDeviceIdentity, normalizePhone,
+  getStoredLang, saveStoredLang, parseSpokenName,
+} from '../../lib/identity';
+import { blobToBase64, type VoiceResult } from '../../hooks/useVoiceCapture';
 import type {
-  ExtractedFields, IssueCode, LangCode, SchemeCode,
+  ExtractedFields, IssueCode, LangCode, SchemeCode, Ticket, TicketStatus,
 } from '../../lib/types';
 import ChatView from './ChatView';
 import type { ChatMessage, Prompt } from './chatTypes';
 
 // ---- follow-up question definitions (only asked if AI didn't extract) ------
 type FollowKey =
-  | 'duration' | 'location' | 'amount' | 'person_age'
-  | 'occupation' | 'bank_linked' | 'detail_field' | 'paid';
+  | 'duration' | 'location' | 'amount' | 'person_age' | 'occupation'
+  | 'bank_linked' | 'ekyc_done' | 'reason_given' | 'docs_status'
+  | 'attempts' | 'alt_auth_offered' | 'recent_bank_change' | 'which_bank'
+  | 'denial_reason' | 'card_status' | 'repeat_demand' | 'official_role'
+  | 'paid' | 'detail_field' | 'docs_available';
+
+// Each follow-up: the question string key + either chip option values or a
+// free-text placeholder key. Chip labels come from optLabel() so they render
+// in the citizen's language.
+const FOLLOW_CFG: Record<FollowKey, { q: StrKey; opts?: string[]; textPh?: StrKey }> = {
+  duration: { q: 'askDur', opts: ['<1m', '1-3m', '3-6m', '>6m', 'ns'] },
+  location: { q: 'askBioLoc', opts: ['fps', 'bank', 'csc', 'hosp', 'office'] },
+  amount: { q: 'askBribeAmt', opts: ['<100', '100-500', '500-1000', '>1000', 'ns'] },
+  person_age: { q: 'askBioAge', opts: ['u60', '60-70', 'a70'] },
+  occupation: { q: 'askBioOcc', opts: ['agri', 'domestic', 'trade', 'other'] },
+  bank_linked: { q: 'askBank', opts: ['yes', 'no', 'ns'] },
+  ekyc_done: { q: 'askEkyc', opts: ['yes', 'no', 'ns'] },
+  reason_given: { q: 'askReason', opts: ['yes', 'no', 'ns'] },
+  docs_status: { q: 'askDocs', opts: ['aadhaar_only', 'ration_card', 'job_card', 'none'] },
+  attempts: { q: 'askAttempts', opts: ['once', 'few', 'many'] },
+  alt_auth_offered: { q: 'askAltAuth', opts: ['yes', 'no'] },
+  recent_bank_change: { q: 'askPayNew', opts: ['yes', 'no', 'ns'] },
+  which_bank: { q: 'askPayBank', textPh: 'payBankPh' },
+  denial_reason: { q: 'askDenReason', textPh: 'denReasonPh' },
+  card_status: { q: 'askCard', opts: ['valid', 'expired', 'none', 'ns'] },
+  repeat_demand: { q: 'askRepeat', opts: ['yes', 'no'] },
+  official_role: { q: 'askRole', opts: ['dealer', 'operator', 'official', 'other'] },
+  paid: { q: 'askBribePaid', opts: ['yes', 'no', 'refused'] },
+  detail_field: { q: 'askDetWhat', opts: ['fld_name', 'fld_dob', 'fld_address', 'fld_bank', 'fld_aadhaar'] },
+  docs_available: { q: 'askDetDocs', opts: ['aadhaar_only', 'ration_card', 'job_card', 'none'] },
+};
+
+const FOLLOW_KEYS = new Set(Object.keys(FOLLOW_CFG));
+
+// Order the collected fields appear in the summary card / officer detail rows.
+const ROW_ORDER: string[] = [
+  'duration', 'location', 'person_age', 'occupation', 'bank_linked', 'ekyc_done',
+  'reason_given', 'docs_status', 'attempts', 'alt_auth_offered', 'recent_bank_change',
+  'which_bank', 'amount', 'paid', 'repeat_demand', 'official_role', 'denial_reason',
+  'card_status', 'detail_field', 'docs_available',
+];
 
 interface State {
   lang: string;
@@ -35,7 +85,7 @@ interface State {
   data: Record<string, any>;
   prompt: Prompt | null;
   pendingFollows: FollowKey[];
-  busy: boolean;        // AI call in flight
+  busy: boolean;
   langSheetOpen: boolean;
 }
 
@@ -89,7 +139,7 @@ export default function CitizenApp() {
 
   // ---- bot helpers ---------------------------------------------------------
   const botSay = (lines: string | string[], then?: () => void) => {
-    const arr = Array.isArray(lines) ? lines : [lines];
+    const arr = (Array.isArray(lines) ? lines : [lines]).filter(Boolean);
     const run = (i: number) => {
       if (i >= arr.length) { then?.(); return; }
       dispatch({ type: 'pushTyping' });
@@ -103,33 +153,77 @@ export default function CitizenApp() {
   };
 
   const setPrompt = (p: Prompt | null) => dispatch({ type: 'set', patch: { prompt: p } });
+  const chipsFor = (values: string[]) =>
+    values.map((v) => ({ value: v, label: optLabel(stateRef.current.lang, v) }));
 
   // ---- boot ----------------------------------------------------------------
   useEffect(() => {
-    botSay([WELCOME], () => {
-      setPrompt({
-        type: 'lang-list',
-        options: LANGS.map((L) => ({ value: L.code, label: L.native, sub: L.roman })),
+    // We only ask for a language once. If the citizen chose one on a previous
+    // visit, reuse it and go straight into the chat — they can still switch it
+    // any time from the toggle in the top-right of the chat header.
+    const saved = getStoredLang();
+    if (saved) {
+      applyLanguage(saved, false);
+    } else {
+      botSay([WELCOME], () => {
+        setPrompt({
+          type: 'lang-list',
+          options: LANGS.map((L) => ({ value: L.code, label: L.native, sub: L.roman })),
+        });
       });
-    });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- language pick -------------------------------------------------------
-  const pickLanguage = (code: string) => {
+  // `announce` echoes the chosen language as a user bubble (true when the
+  // citizen actively taps a language); on an automatic reuse at boot we stay
+  // silent and drop straight into the greeting.
+  const applyLanguage = (code: string, announce: boolean) => {
     const real = resolveLang(code);
     const L = LANGS.find((x) => x.code === code);
-    dispatch({ type: 'pushUser', text: L ? L.native : 'English' });
-    dispatch({ type: 'set', patch: { lang: real, stage: 'chat', step: 'name', langSheetOpen: false } });
+    if (announce) dispatch({ type: 'pushUser', text: L ? L.native : 'English' });
+    saveStoredLang(real);
+    dispatch({ type: 'set', patch: { lang: real, stage: 'chat', langSheetOpen: false } });
     dispatch({ type: 'mergeData', data: { lang: real } });
     const S = strings(real);
-    botSay([S.greet, S.askName], () => setPrompt({ type: 'text', placeholder: S.namePh, mic: true }));
+
+    const id = getDeviceIdentity();
+    if (id) {
+      // Returning citizen — reuse phone, confirm the name.
+      dispatch({ type: 'mergeData', data: { phone: id.phone, name: id.name, _returning: true } });
+      dispatch({ type: 'set', patch: { step: 'continueName' } });
+      botSay([S.greet, fmt(S.askContinueName, { n: id.name })], () => setPrompt({
+        type: 'chips',
+        options: [
+          { value: 'keep', label: fmt(S.keepName, { n: id.name }) },
+          { value: 'change', label: S.changeName },
+        ],
+      }));
+    } else {
+      // First visit on this device — ask for the phone number.
+      dispatch({ type: 'set', patch: { step: 'phone' } });
+      botSay([S.greet, S.askPhone], () => setPrompt({ type: 'text', placeholder: S.phonePh }));
+    }
   };
+
+  const pickLanguage = (code: string) => applyLanguage(code, true);
 
   // ---- the main engine -----------------------------------------------------
   const goTo = (step: string) => {
     const S = strings(stateRef.current.lang);
     dispatch({ type: 'set', patch: { step } });
+
+    // Generic follow-up handling first.
+    if (FOLLOW_KEYS.has(step)) {
+      const cfg = FOLLOW_CFG[step as FollowKey];
+      botSay(S[cfg.q], () => {
+        if (cfg.opts) setPrompt({ type: 'chips', options: chipsFor(cfg.opts) });
+        else setPrompt({ type: 'text', placeholder: cfg.textPh ? S[cfg.textPh] : '' });
+      });
+      return;
+    }
+
     switch (step) {
       case 'state':
         botSay(S.askState, () => setPrompt({ type: 'chips', options: STATES.map((s) => ({ value: s, label: s })) }));
@@ -141,79 +235,60 @@ export default function CitizenApp() {
         }));
         break;
       case 'describe':
-        // THE AI MOMENT: free text instead of a scheme menu.
-        botSay(S.voicePrompt, () => setPrompt({ type: 'voicetext', placeholder: '…or type it instead' }));
+        botSay(S.voicePrompt, () => setPrompt({ type: 'voicetext', mic: true }));
         break;
-      // ---- follow-ups (only those the AI couldn't extract) ----
-      case 'duration':
-        botSay(S.askDur, () => setPrompt({ type: 'chips', options: chips([
-          { value: '<1m', label: 'Less than 1 month' }, { value: '1-3m', label: '1–3 months' },
-          { value: '3-6m', label: '3–6 months' }, { value: '>6m', label: 'More than 6 months' },
-          { value: 'ns', label: 'Not sure' },
-        ]) }));
-        break;
-      case 'location':
-        botSay(S.askBioLoc, () => setPrompt({ type: 'chips', options: chips([
-          { value: 'fps', label: 'Ration shop' }, { value: 'bank', label: 'Bank' },
-          { value: 'csc', label: 'CSC / Aadhaar centre' }, { value: 'hosp', label: 'Hospital' },
-          { value: 'office', label: 'Govt office' },
-        ]) }));
-        break;
-      case 'amount':
-        botSay(S.askBribeAmt, () => setPrompt({ type: 'chips', options: chips([
-          { value: '<100', label: 'Under ₹100' }, { value: '100-500', label: '₹100–500' },
-          { value: '500-1000', label: '₹500–1000' }, { value: '>1000', label: 'Over ₹1000' },
-          { value: 'ns', label: 'Not sure' },
-        ]) }));
-        break;
-      case 'person_age':
-        botSay(S.askBioAge, () => setPrompt({ type: 'chips', options: chips([
-          { value: 'u60', label: 'Below 60' }, { value: '60-70', label: '60–70' }, { value: 'a70', label: 'Above 70' },
-        ]) }));
-        break;
-      case 'occupation':
-        botSay(S.askBioOcc, () => setPrompt({ type: 'chips', options: chips([
-          { value: 'agri', label: 'Agricultural labour' }, { value: 'domestic', label: 'Domestic work' },
-          { value: 'trade', label: 'Trade / shop' }, { value: 'other', label: 'Other' },
-        ]) }));
-        break;
-      case 'bank_linked':
-        botSay(S.askBank, () => setPrompt({ type: 'chips', options: chips([
-          { value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }, { value: 'ns', label: 'Not sure' },
-        ]) }));
-        break;
-      case 'paid':
-        botSay(S.askBribePaid, () => setPrompt({ type: 'chips', options: chips([
-          { value: 'yes', label: 'Yes, I paid' }, { value: 'no', label: "No, I couldn't" }, { value: 'refused', label: 'I refused' },
-        ]) }));
-        break;
-      case 'scheme': // fallback menu
+      case 'scheme': // fallback menu (low AI confidence)
         botSay(S.askScheme, () => setPrompt({
-          type: 'menu', title: 'Which benefit?',
-          options: SCHEMES.map((s) => ({ value: s.value, label: s.label, sub: s.sub, mono: s.mono, tint: s.tint, fg: s.fg })),
+          type: 'menu', title: S.askScheme,
+          options: SCHEMES.map((s) => ({
+            value: s.value, label: schemeLabelLocalized(stateRef.current.lang, s.value),
+            sub: s.sub, mono: s.mono, tint: s.tint, fg: s.fg,
+          })),
         }));
         break;
       case 'issue': // fallback menu
         botSay(S.askIssue, () => setPrompt({
-          type: 'menu', title: 'What issue are you facing?',
-          options: ISSUES.map((s) => ({ value: s.value, label: s.label })),
+          type: 'menu', title: S.askIssue,
+          options: ISSUES.map((s) => ({ value: s.value, label: issueLabelLocalized(stateRef.current.lang, s.value) })),
         }));
         break;
     }
   };
 
-  const chips = (arr: { value: string; label: string }[]) => arr;
+  const goToFlowChoice = () => {
+    const S = strings(stateRef.current.lang);
+    dispatch({ type: 'set', patch: { step: 'flowChoice' } });
+    botSay(S.askFlowChoice, () => setPrompt({
+      type: 'chips',
+      options: [
+        { value: 'new', label: S.optNewTicket },
+        { value: 'track', label: S.optTrackTicket },
+      ],
+    }));
+  };
 
-  // ---- field key -> follow-up step relevance per issue ---------------------
+  // Store the citizen's name and move on. Used by both the typed answer and the
+  // spoken answer (the caller has already shown the user bubble).
+  const finishName = (name: string) => {
+    const d = stateRef.current.data;
+    dispatch({ type: 'mergeData', data: { name } });
+    saveDeviceIdentity({ phone: d.phone || '', name });
+    // Returning citizen who changed their name → back to the choice menu.
+    // First-time citizen → straight into raising their first complaint.
+    if (d._returning) goToFlowChoice();
+    else goTo('state');
+  };
+
+  // ---- field key -> follow-up steps relevant per issue ---------------------
   const followsForIssue = (issue: IssueCode): FollowKey[] => {
     switch (issue) {
-      case 'stopped': return ['duration', 'bank_linked'];
-      case 'biometric': return ['location', 'person_age', 'occupation'];
-      case 'payment': return ['bank_linked'];
-      case 'denied': return ['location'];
-      case 'bribe': return ['location', 'amount', 'paid'];
-      case 'details': return ['detail_field'];
-      default: return [];
+      case 'stopped': return ['duration', 'bank_linked', 'ekyc_done', 'reason_given', 'docs_status'];
+      case 'biometric': return ['location', 'person_age', 'occupation', 'attempts', 'alt_auth_offered'];
+      case 'payment': return ['bank_linked', 'recent_bank_change', 'amount', 'which_bank', 'duration'];
+      case 'denied': return ['location', 'denial_reason', 'card_status', 'duration'];
+      case 'bribe': return ['location', 'amount', 'paid', 'repeat_demand', 'official_role'];
+      case 'details': return ['detail_field', 'docs_available', 'duration'];
+      default: return ['duration', 'location', 'bank_linked'];
     }
   };
 
@@ -225,10 +300,45 @@ export default function CitizenApp() {
 
   const advance = async (value: string, label: string) => {
     const step = stateRef.current.step;
+
+    // Follow-up answers (chips store the value/code, text stores typed text).
+    if (FOLLOW_KEYS.has(step)) {
+      dispatch({ type: 'mergeData', data: { [step]: value } });
+      const remaining = stateRef.current.pendingFollows.filter((f) => f !== step);
+      dispatch({ type: 'set', patch: { pendingFollows: remaining } });
+      nextFollow(remaining);
+      return;
+    }
+
     switch (step) {
+      case 'phone': {
+        const phone = normalizePhone(value);
+        dispatch({ type: 'mergeData', data: { phone } });
+        const S = strings(stateRef.current.lang);
+        dispatch({ type: 'set', patch: { step: 'name' } });
+        botSay(S.askName, () => setPrompt({ type: 'text', placeholder: S.namePh, mic: true }));
+        break;
+      }
+      case 'continueName':
+        if (value === 'keep') {
+          goToFlowChoice();
+        } else {
+          const S = strings(stateRef.current.lang);
+          dispatch({ type: 'set', patch: { step: 'name' } });
+          botSay(S.askName, () => setPrompt({ type: 'text', placeholder: S.namePh, mic: true }));
+        }
+        break;
       case 'name':
-        dispatch({ type: 'mergeData', data: { name: label } });
-        goTo('state'); break;
+        // Handles "My name is Praveen" / "मेरा नाम प्रवीण है" → "Praveen".
+        finishName(parseSpokenName(label) || label);
+        break;
+      case 'flowChoice':
+        if (value === 'track') handleTrack();
+        else goTo('state');
+        break;
+      case 'trackSelect':
+        showTicketStatus(value);
+        break;
       case 'state':
         dispatch({ type: 'mergeData', data: { state: value } });
         goTo('district'); break;
@@ -237,6 +347,10 @@ export default function CitizenApp() {
         goTo('describe'); break;
       case 'describe':
         await handleDescribe(label); break;
+      case 'voiceConsent':
+        if (value === 'yes') startVoiceRecording();
+        else goTo('describe');
+        break;
       case 'scheme':
         dispatch({ type: 'mergeData', data: { scheme: value } });
         goTo('issue'); break;
@@ -246,23 +360,95 @@ export default function CitizenApp() {
         dispatch({ type: 'set', patch: { pendingFollows: follows } });
         nextFollow(follows); break;
       }
-      // follow-up answers
-      case 'duration': case 'location': case 'amount': case 'person_age':
-      case 'occupation': case 'bank_linked': case 'paid': {
-        dispatch({ type: 'mergeData', data: { [step]: label } });
-        const remaining = stateRef.current.pendingFollows.filter((f) => f !== step);
-        dispatch({ type: 'set', patch: { pendingFollows: remaining } });
-        nextFollow(remaining); break;
-      }
       case 'confirm':
         if (value === 'yes') finalize();
         else goTo('describe');
         break;
+      case 'done':
+        // Restart: any input after the thank-you returns to the choice menu,
+        // keeping the stored identity + language.
+        goToFlowChoice();
+        break;
+    }
+  };
+
+  // ---- voice note capture --------------------------------------------------
+  const onMicRequest = () => {
+    if (stateRef.current.busy) return;
+    const step = stateRef.current.step;
+    const S = strings(stateRef.current.lang);
+
+    // Voice answer for the name question — record, transcribe, extract the name.
+    // No consent/upload here; a name is short and never stored as audio.
+    if (step === 'name') {
+      dispatch({ type: 'set', patch: { step: 'nameRecord' } });
+      setPrompt({ type: 'voice-record', recordHint: S.recTap, stopLabel: S.recStop });
+      return;
+    }
+
+    if (step !== 'describe') return;
+    dispatch({ type: 'set', patch: { step: 'voiceConsent' } });
+    botSay(S.askVoiceConsent, () => setPrompt({
+      type: 'chips',
+      options: [{ value: 'yes', label: S.vYes }, { value: 'no', label: S.vNo }],
+    }));
+  };
+
+  const startVoiceRecording = () => {
+    const S = strings(stateRef.current.lang);
+    dispatch({ type: 'set', patch: { step: 'voiceRecord' } });
+    setPrompt({ type: 'voice-record', recordHint: S.recTap, stopLabel: S.recStop });
+  };
+
+  const onVoiceRecorded = async (result: VoiceResult) => {
+    const S = strings(stateRef.current.lang);
+
+    // Spoken name answer — pull the name out of the transcript and continue.
+    if (stateRef.current.step === 'nameRecord') {
+      const name = parseSpokenName(result.transcript || '');
+      if (name) {
+        dispatch({ type: 'pushUser', text: name });
+        dispatch({ type: 'set', patch: { step: 'name' } });
+        finishName(name);
+      } else {
+        dispatch({ type: 'set', patch: { step: 'name' } });
+        botSay(S.recFail, () => setPrompt({ type: 'text', placeholder: S.namePh, mic: true }));
+      }
+      return;
+    }
+
+    const d = stateRef.current.data;
+    const url = URL.createObjectURL(result.blob);
+    dispatch({ type: 'pushCard', msg: { kind: 'voice', audioUrl: url, time: now() } });
+
+    // Upload the actual clip (backend stores it + the silent transcript).
+    dispatch({ type: 'set', patch: { busy: true, prompt: null } });
+    dispatch({ type: 'pushTyping' });
+    try {
+      const b64 = await blobToBase64(result.blob);
+      const clip = await uploadVoiceClip({
+        audioBase64: b64, mime: result.mime, lang: stateRef.current.lang,
+        phone: d.phone || '', transcript: result.transcript,
+      });
+      if (clip?.id) dispatch({ type: 'mergeData', data: { voice_clip_id: clip.id } });
+    } catch (err) {
+      console.error('voice upload failed:', err);
+    }
+    dispatch({ type: 'popTyping' });
+    dispatch({ type: 'set', patch: { busy: false } });
+
+    // The transcript is the "backend translation" input to the classifier.
+    if (result.transcript.trim()) {
+      dispatch({ type: 'set', patch: { step: 'describe' } });
+      await handleDescribe(result.transcript.trim());
+    } else {
+      botSay(S.recFail, () => goTo('describe'));
     }
   };
 
   // ---- the live-NLU step ---------------------------------------------------
   const handleDescribe = async (text: string) => {
+    const S = strings(stateRef.current.lang);
     dispatch({ type: 'set', patch: { busy: true } });
     dispatch({ type: 'pushTyping' });
 
@@ -272,16 +458,11 @@ export default function CitizenApp() {
     dispatch({ type: 'set', patch: { busy: false } });
 
     if (!result) {
-      // Low confidence / unavailable → graceful fallback to guided menus.
       dispatch({ type: 'mergeData', data: { original_text: text } });
-      botSay(
-        "Let me make sure I route this correctly — a couple of quick taps:",
-        () => goTo('scheme'),
-      );
+      botSay(S.fallbackRoute, () => goTo('scheme'));
       return;
     }
 
-    // Map AI output onto the data object.
     const ext: ExtractedFields = result.extracted || {};
     dispatch({
       type: 'mergeData',
@@ -292,16 +473,13 @@ export default function CitizenApp() {
       },
     });
 
-    // Only ask the follow-ups the AI couldn't already fill.
     const relevant = followsForIssue(result.issue);
     const have = new Set(Object.keys(ext));
     const missing = relevant.filter((k) => !have.has(k));
     dispatch({ type: 'set', patch: { pendingFollows: missing } });
 
-    botSay(
-      `Understood — this looks like a ${issueLabel(result.issue).toLowerCase()} issue with ${schemeLong(result.scheme)}.`,
-      () => nextFollow(missing),
-    );
+    // The acknowledgment is written by the AI in the citizen's own language.
+    botSay(result.citizen_ack || S.ackFallback, () => nextFollow(missing));
   };
 
   const nextFollow = (queue: FollowKey[]) => {
@@ -312,9 +490,11 @@ export default function CitizenApp() {
   // ---- summary + ticket ----------------------------------------------------
   const showSummary = () => {
     const S = strings(stateRef.current.lang);
-    const rows = buildSummaryRows(stateRef.current.data);
     dispatch({ type: 'pushTyping' });
     setTimeout(() => {
+      // Build rows here (not before the timeout) so the just-answered final
+      // follow-up has flushed into stateRef and appears in the summary.
+      const rows = buildRows(stateRef.current.lang, stateRef.current.data);
       dispatch({ type: 'popTyping' });
       dispatch({ type: 'pushCard', msg: { kind: 'summary', text: S.summaryTitle, rows } });
       botSay(S.confirmQ, () => {
@@ -335,6 +515,7 @@ export default function CitizenApp() {
     try {
       const res = await createTicket({
         name: d.name || 'Citizen',
+        phone: d.phone || '',
         lang: (d.lang || 'en') as LangCode,
         state: d.state || '',
         district: d.district || '',
@@ -344,7 +525,8 @@ export default function CitizenApp() {
         original_text: d.original_text || '',
         english_summary: d.english_summary || d.original_text || '',
         extracted: {},
-        detail_rows: buildSummaryRows(d),
+        detail_rows: buildRows('en', d), // officer dashboard stays English
+        voice_clip_id: d.voice_clip_id,
       });
       dispatch({ type: 'popTyping' });
       dispatch({ type: 'set', patch: { busy: false } });
@@ -354,12 +536,71 @@ export default function CitizenApp() {
         headBg: res.priority ? '#6E3FA3' : '#1E9E4A',
         headLabel: res.priority ? 'Priority complaint registered' : 'Complaint registered',
       } });
-      dispatch({ type: 'set', patch: { step: 'done' } });
+      // Thank-you + restart hint, then park at the terminal 'done' step.
+      botSay([S.thanks, S.restartHint], () => {
+        dispatch({ type: 'set', patch: { step: 'done' } });
+        setPrompt({ type: 'text', placeholder: 'hi' });
+      });
     } catch {
       dispatch({ type: 'popTyping' });
       dispatch({ type: 'set', patch: { busy: false } });
-      botSay('Something went wrong saving your complaint. Please try again in a moment.');
+      botSay(S.saveError);
     }
+  };
+
+  // ---- tracking old complaints ---------------------------------------------
+  const handleTrack = async () => {
+    const S = strings(stateRef.current.lang);
+    const phone = stateRef.current.data.phone || '';
+    dispatch({ type: 'set', patch: { busy: true, prompt: null } });
+    dispatch({ type: 'pushTyping' });
+    let tickets: Ticket[] = [];
+    try {
+      tickets = await fetchTicketsByPhone(phone);
+    } catch (err) {
+      console.error('fetchTicketsByPhone failed:', err);
+    }
+    dispatch({ type: 'popTyping' });
+    dispatch({ type: 'set', patch: { busy: false } });
+
+    if (!tickets.length) {
+      botSay(S.noTickets, () => goTo('state'));
+      return;
+    }
+    dispatch({ type: 'mergeData', data: { _trackTickets: tickets } });
+    dispatch({ type: 'set', patch: { step: 'trackSelect' } });
+    setPrompt({
+      type: 'menu', title: S.trackSelectTitle,
+      options: tickets.map((t) => ({
+        value: t.id,
+        label: `${t.id} · ${issueLabelLocalized(stateRef.current.lang, t.issue)}`,
+        sub: `${fmtDate(t.created_at)} · ${statusLabel(stateRef.current.lang, t.status)}`,
+      })),
+    });
+  };
+
+  const showTicketStatus = (id: string) => {
+    const lang = stateRef.current.lang;
+    const S = strings(lang);
+    const tickets: Ticket[] = stateRef.current.data._trackTickets || [];
+    const t = tickets.find((x) => x.id === id);
+    if (!t) { goToFlowChoice(); return; }
+
+    const rows: Array<[string, string]> = [
+      [S.tStatusLabel, statusLabel(lang, t.status)],
+      [S.tOfficeLabel, t.route],
+      [S.tOpenedOn, fmtDate(t.created_at)],
+    ];
+    const history = Array.isArray(t.updates) ? t.updates : [];
+    if (history.length) {
+      rows.push([S.tUpdatesLabel, history.map((u) => `${fmtDate(u.ts)} — ${statusLabel(lang, u.status)}`).join('\n')]);
+    } else {
+      rows.push([S.tUpdatesLabel, S.tNoUpdates]);
+    }
+
+    dispatch({ type: 'pushCard', msg: { kind: 'summary', text: t.id, rows } });
+    // Offer the choice menu again so they can track another or raise a new one.
+    goToFlowChoice();
   };
 
   // ---- render --------------------------------------------------------------
@@ -369,6 +610,8 @@ export default function CitizenApp() {
       onBack={() => nav('/')}
       onPickLanguage={pickLanguage}
       onSubmit={submit}
+      onMicRequest={onMicRequest}
+      onVoiceRecorded={onVoiceRecorded}
       onChangeLang={() => dispatch({ type: 'set', patch: { langSheetOpen: true } })}
       onCloseLangSheet={() => dispatch({ type: 'set', patch: { langSheetOpen: false } })}
       langCodeShort={langCodeShort(state.lang)}
@@ -376,29 +619,30 @@ export default function CitizenApp() {
   );
 }
 
-// ---- summary rows from collected data --------------------------------------
-function buildSummaryRows(d: Record<string, any>): Array<[string, string]> {
+// ---- summary/detail rows from collected data -------------------------------
+// Localized when lang is the citizen's; English when lang === 'en' (officer).
+function buildRows(lang: string, d: Record<string, any>): Array<[string, string]> {
   const rows: Array<[string, string]> = [];
-  rows.push(['Issue', issueLabel(d.issue)]);
-  rows.push(['Scheme', schemeLong(d.scheme)]);
-  if (d.duration) rows.push(['Duration', labelFor('duration', d.duration)]);
-  if (d.location) rows.push(['Location', labelFor('location', d.location)]);
-  if (d.person_age) rows.push(['Person age', labelFor('person_age', d.person_age)]);
-  if (d.occupation) rows.push(['Occupation', labelFor('occupation', d.occupation)]);
-  if (d.bank_linked) rows.push(['Bank account', d.bank_linked === 'yes' ? 'Linked' : d.bank_linked === 'no' ? 'Not linked' : 'Unsure']);
-  if (d.amount) rows.push(['Amount', labelFor('amount', d.amount)]);
-  if (d.paid) rows.push(['Paid?', d.paid]);
-  if (d.original_text) rows.push(['In their words', d.original_text]);
+  if (d.issue) rows.push([rowLabel(lang, 'issue'), issueLabelLocalized(lang, d.issue)]);
+  if (d.scheme) rows.push([rowLabel(lang, 'scheme'), schemeLabelLocalized(lang, d.scheme)]);
+  for (const key of ROW_ORDER) {
+    const v = d[key];
+    if (v === undefined || v === null || v === '') continue;
+    rows.push([rowLabel(lang, key), optLabel(lang, String(v))]);
+  }
+  if (d.original_text) rows.push([rowLabel(lang, 'original_text'), d.original_text]);
   return rows;
 }
 
-function labelFor(_k: string, v: string): string {
-  const map: Record<string, string> = {
-    '<1m': 'Less than 1 month', '1-3m': '1–3 months', '3-6m': '3–6 months', '>6m': 'More than 6 months',
-    ns: 'Not sure', fps: 'Ration shop', bank: 'Bank', csc: 'CSC / Aadhaar centre', hosp: 'Hospital',
-    office: 'Govt office', u60: 'Below 60', '60-70': '60–70', a70: 'Above 70',
-    agri: 'Agricultural labour', domestic: 'Domestic work', trade: 'Trade / shop', other: 'Other',
-    '<100': 'Under ₹100', '100-500': '₹100–500', '500-1000': '₹500–1000', '>1000': 'Over ₹1000',
+function statusLabel(lang: string, status: TicketStatus): string {
+  const S = strings(lang);
+  const map: Record<TicketStatus, string> = {
+    open: S.stOpen, progress: S.stProgress, escalated: S.stEscalated, resolved: S.stResolved,
   };
-  return map[v] || v;
+  return map[status] || status;
+}
+
+function fmtDate(iso: string): string {
+  try { return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); }
+  catch { return iso; }
 }

@@ -23,9 +23,16 @@ interface SpeechController {
   stop: () => void;
 }
 
+interface Options {
+  // When true, keeps listening and streams every final chunk to onResult
+  // (used by the voice-note recorder to build a full transcript silently).
+  continuous?: boolean;
+}
+
 export function useSpeechRecognition(
   lang: string,
   onResult: (text: string) => void,
+  opts: Options = {},
 ): SpeechController {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
@@ -57,7 +64,7 @@ export function useSpeechRecognition(
     rec.lang = LOCALE[lang] || 'hi-IN';
     rec.interimResults = false;
     rec.maxAlternatives = 1;
-    rec.continuous = false;
+    rec.continuous = !!opts.continuous;
 
     rec.onresult = (e: any) => {
       const transcript = Array.from(e.results)
@@ -76,7 +83,7 @@ export function useSpeechRecognition(
     } catch {
       setListening(false);
     }
-  }, [lang, onResult]);
+  }, [lang, onResult, opts.continuous]);
 
   // Clean up on unmount.
   useEffect(() => () => stop(), [stop]);
