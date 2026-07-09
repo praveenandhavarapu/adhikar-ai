@@ -11,6 +11,7 @@ import {
 import type { CreateTicketInput } from '../../src/lib/types';
 import { routeFor, schemeLong } from '../../src/data/schemes';
 import { langLabel } from '../../src/data/languages';
+import { officeForCategory, officeName } from '../../src/data/offices';
 
 const ANALYST_SYSTEM = `You are a senior welfare-grievance analyst advising an Indian district officer. Given a structured complaint, produce a tight, actionable analysis. Be concrete and specific to Indian welfare administration (Aadhaar, DBT, NPCI mapping, eKYC, LALA rule, biometric exception clauses, Jan Dhan, FPS/CSC). No fluff.
 
@@ -71,6 +72,12 @@ export const handler: Handler = async (event) => {
   // ---- Persist -------------------------------------------------------------
   const id = genId();
   const status = input.priority ? 'escalated' : 'open';
+  const nowIso = new Date().toISOString();
+  // O1 — structured analysis fields, all derived from the SINGLE classify call
+  // that already ran in the citizen flow (no extra LLM call here). The owning
+  // office is both the recommendation and the initial holding office.
+  const recOffice = officeName(officeForCategory(input.scheme, input.issue));
+  const monthKey = nowIso.slice(0, 7); // YYYY-MM
   // Mask the self-declared phone for officer display (keep last 4 visible).
   const phone = (input.phone || '').replace(/\D/g, '');
   const masked = phone
@@ -97,7 +104,17 @@ export const handler: Handler = async (event) => {
     ai_root_cause: analysis.root_cause || '',
     ai_suggested_resolution: analysis.suggested_resolution || '',
     ai_cross_scheme: Array.isArray(analysis.cross_scheme) ? analysis.cross_scheme : [],
-    updates: [{ ts: new Date().toISOString(), status }],
+    // O1 — stored structured analysis (read by the officer with no live call):
+    ai_summary: input.english_summary || '',
+    ai_category: input.scheme,
+    ai_issue_family: input.issue,
+    ai_recommended_office: recOffice,
+    ai_confidence: typeof input.confidence === 'number' ? input.confidence : 0,
+    ai_generated_at: nowIso,
+    current_office: recOffice,
+    resolved_at: null,
+    target_month_key: monthKey,
+    updates: [{ ts: nowIso, status }],
   };
 
   try {

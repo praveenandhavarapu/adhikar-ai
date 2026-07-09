@@ -33,7 +33,7 @@ export const handler: Handler = async (event) => {
 
     let query = supabase
       .from('tickets')
-      .select('*, voice_clips(*)');
+      .select('*, voice_clips(*), events:ticket_events(*)');
 
     query = phone
       ? query.eq('phone', phone).order('created_at', { ascending: false })
@@ -76,10 +76,16 @@ export const handler: Handler = async (event) => {
     console.error('tickets read-before-update error:', readErr);
     return bad('Could not update the ticket', 500);
   }
+  const nowIso = new Date().toISOString();
   const history = Array.isArray(existing?.updates) ? existing.updates : [];
-  const updates = [...history, { ts: new Date().toISOString(), status }];
+  const updates = [...history, { ts: nowIso, status }];
 
-  const { error } = await supabase.from('tickets').update({ status, updates }).eq('id', id);
+  // Stamp resolved_at on resolution (powers monthly Home aggregates); clear it if
+  // a resolved ticket is reopened to another status.
+  const patch: Record<string, unknown> = { status, updates };
+  patch.resolved_at = status === 'resolved' ? nowIso : null;
+
+  const { error } = await supabase.from('tickets').update(patch).eq('id', id);
   if (error) {
     console.error('tickets update error:', error);
     return bad('Could not update the ticket', 500);

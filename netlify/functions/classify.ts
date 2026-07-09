@@ -28,6 +28,18 @@ ISSUES (pick exactly one "issue"):
 - details: personal details recorded incorrectly
 - other
 
+ROUTING RULES — always choose the single most specific scheme + issue that fits.
+- Pick "other" for scheme/issue ONLY as a last resort when the message truly
+  gives no signal. If a benefit or problem type is even implied, classify it.
+- Common cues: "ration/grain/PDS shop" → pds. "MGNREGA/100 days/wages/job card"
+  → mgnrega. "pension/old age/widow/disability" → nsap. "PM-Kisan/₹2000/farmer
+  instalment" → pmkisan. "hospital/Ayushman/treatment card" → pmjay. "gas/LPG/
+  cylinder/Ujjwala" → ujjwala. "house/Awas/PMAY instalment" → awas.
+- Issue cues: "not coming/stopped/never got" → stopped. "fingerprint/thumb/iris
+  won't work" → biometric. "money went to wrong/other account/not credited" →
+  payment. "refused/turned away/didn't give" → denied. "asked for money/bribe/
+  ₹ to release it" → bribe. "wrong name/DOB/spelling/Aadhaar detail" → details.
+
 Set "priority": true ONLY for bribe / corruption.
 
 Be decisive. Indian welfare complaints almost always map to one of the schemes and issues above — commit to the single best-fitting category rather than defaulting to "other". Use scheme "other" or issue "other" ONLY when no listed category could reasonably apply. Common mappings: "ration/anaj/PDS/food grain not received" → pds + stopped; "pension/vridha/vidhwa not coming" → nsap + stopped; "MGNREGA/rozgar/wages/job card payment not paid" → mgnrega + payment; "fingerprint/angutha/biometric not working at shop" → biometric; "asked for money/rishwat/bribe/commission" → bribe; "PM-KISAN kisan installment/kist" → pmkisan + payment; "Ayushman/hospital refused treatment" → pmjay + denied; "gas/LPG/Ujjwala" → ujjwala; "house/awas/PMAY" → awas; "name/DOB/address/aadhaar recorded wrong" → details.
@@ -40,7 +52,7 @@ Extract any of these into "extracted" (omit if absent): duration, location, amou
 
 "citizen_ack": ONE warm, short sentence acknowledging what you understood, written in the SAME language as the citizen's complaint (use the language hint). Reference the benefit and the problem in plain words. No English unless the complaint itself is English.
 
-"confidence": 0..1 — your certainty in the scheme+issue classification. Use < 0.6 only when genuinely ambiguous.
+"confidence": 0..1 — your certainty in the scheme+issue classification. Be decisive: use < 0.45 ONLY when the message is genuinely unclassifiable. A rough or partial transcript that still conveys the problem should score 0.7+.
 
 Respond with ONLY a JSON object, no prose, no markdown:
 {"scheme","issue","confidence","english_summary","citizen_ack","extracted":{},"missing":[],"priority"}`;
@@ -64,9 +76,21 @@ export const handler: Handler = async (event) => {
     const client = getAnthropic();
     const msg = await client.messages.create({
       model: MODEL,
-      max_tokens: 700,
+      // Indic-script output + the ack sentence + extracted fields need headroom;
+      // 700 truncated the JSON mid-string and broke parsing (everything fell to
+      // "other"). 1500 comfortably fits the full object.
+      max_tokens: 1500,
       system: SYSTEM,
-      messages: [{ role: 'user', content: `Citizen language hint: ${langCode}\nComplaint: "${text}"` }],
+      messages: [{
+        role: 'user',
+        content:
+          `Citizen language hint: ${langCode}\n` +
+          `The complaint below may be a raw, imperfect speech-to-text transcript ` +
+          `(missing punctuation, split words, minor mishearings). Read past those ` +
+          `errors and classify by overall meaning — do NOT drop to "other" just ` +
+          `because the wording is rough.\n` +
+          `Complaint: "${text}"`,
+      }],
     });
 
     const result = parseJsonFromClaude<ClassifyResult>(msg.content);
