@@ -83,7 +83,15 @@ export const handler: Handler = async (event) => {
   const masked = phone
     ? '•••• ••' + phone.slice(-4, -2) + ' ' + phone.slice(-2)
     : '•••• ••' + Math.floor(10 + Math.random() * 89) + ' ' + Math.floor(10 + Math.random() * 89);
-  const row = {
+  // The route (holding desk) is always resolvable — routeFor / officeForCategory
+  // fall back to a valid default for any (scheme, issue, district), so a broken
+  // routing lookup can never be the thing that blocks ticket creation.
+  const route = routeFor(input.scheme, input.issue, input.district);
+
+  // BASE row: only columns that exist in every deployed schema version. This is
+  // what actually creates the ticket, so create-ticket succeeds even if the v2
+  // migration has not been applied to this database yet.
+  const baseRow = {
     id,
     name: input.name,
     phone,
@@ -97,14 +105,19 @@ export const handler: Handler = async (event) => {
     priority: input.priority,
     sla: input.priority ? 'pri' : 'std',
     contact_masked: masked,
-    route: routeFor(input.scheme, input.issue, input.district),
+    route,
     original_text: input.original_text || '',
     english_summary: input.english_summary || '',
     detail_rows: input.detail_rows || [],
     ai_root_cause: analysis.root_cause || '',
     ai_suggested_resolution: analysis.suggested_resolution || '',
     ai_cross_scheme: Array.isArray(analysis.cross_scheme) ? analysis.cross_scheme : [],
-    // O1 — stored structured analysis (read by the officer with no live call):
+    updates: [{ ts: nowIso, status }],
+  };
+
+  // EXTENDED columns added by the v2 migration. Applied as a best-effort follow-up
+  // update so a database still on the old schema does not block ticket creation.
+  const extendedPatch = {
     ai_summary: input.english_summary || '',
     ai_category: input.scheme,
     ai_issue_family: input.issue,
@@ -112,28 +125,49 @@ export const handler: Handler = async (event) => {
     ai_confidence: typeof input.confidence === 'number' ? input.confidence : 0,
     ai_generated_at: nowIso,
     current_office: recOffice,
-    resolved_at: null,
+    resolved_at: null as string | null,
     target_month_key: monthKey,
-    updates: [{ ts: nowIso, status }],
   };
 
+  let supabase;
   try {
-    const supabase = getSupabase();
-    const { error } = await supabase.from('tickets').insert(row);
-    if (error) throw error;
-
-    // Link an uploaded voice note to this ticket (best-effort — ticket already saved).
-    if (input.voice_clip_id) {
-      const { error: linkErr } = await supabase
-        .from('voice_clips')
-        .update({ ticket_id: id })
-        .eq('id', input.voice_clip_id);
-      if (linkErr) console.error('voice clip link error (ticket still saved):', linkErr);
-    }
+    supabase = getSupabase();
   } catch (err) {
-    console.error('supabase insert error:', err);
-    return bad('Could not save the complaint. Please try again.', 500);
+    console.error('create-ticket: supabase config error:', err);
+    return bad('Database is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY.', 500);
   }
 
-  return ok({ id, priority: input.priority });
+  // 1) Create the ticket with the always-present base columns.
+  const { error: insErr } = await supabase.from('tickets').insert(baseRow);
+  if (insErr) {
+    // Surface the ACTUAL database error (message + code + details) instead of a
+    // generic failure, so routing/schema problems are diagnosable from the logs
+    // and the client response.
+    console.error('create-ticket: base insert failed', {
+      message: insErr.message, code: (insErr as any).code,
+      details: (insErr as any).details, hint: (insErr as any).hint,
+      scheme: input.scheme, issue: input.issue, district: input.district, route,
+    });
+    return bad(`Could not save the complaint: ${insErr.message || 'database insert failed'}`, 500);
+  }
+
+  // 2) Best-effort: enrich with the v2 columns. If they don't exist yet (old
+  //    schema), the ticket is already saved — log and carry on rather than fail.
+  const { error: updErr } = await supabase.from('tickets').update(extendedPatch).eq('id', id);
+  if (updErr) {
+    console.warn('create-ticket: extended columns not applied (ticket still saved). Run the v2 migration.', {
+      message: updErr.message, code: (updErr as any).code,
+    });
+  }
+
+  // 3) Best-effort: link an uploaded voice note to this ticket.
+  if (input.voice_clip_id) {
+    const { error: linkErr } = await supabase
+      .from('voice_clips')
+      .update({ ticket_id: id })
+      .eq('id', input.voice_clip_id);
+    if (linkErr) console.error('create-ticket: voice clip link error (ticket still saved):', linkErr.message);
+  }
+
+  return ok({ id, priority: input.priority, route });
 };

@@ -16,7 +16,13 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+  if (!res.ok) {
+    // Surface the server's actual error message (e.g. the real DB/routing error
+    // from create-ticket) instead of an opaque status code.
+    let detail = '';
+    try { const j = await res.json(); if (j?.error) detail = `: ${j.error}`; } catch { /* body not JSON */ }
+    throw new Error(`${url} -> ${res.status}${detail}`);
+  }
   return res.json() as Promise<T>;
 }
 
