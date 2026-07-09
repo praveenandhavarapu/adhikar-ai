@@ -309,10 +309,25 @@ export default function CitizenApp() {
         }));
         break;
       case 'district':
-        botSay(S.askDistrict, () => setPrompt({
-          type: 'chips',
-          options: districtsFor(stateRef.current.data.state).map((s) => ({ value: s, label: s })),
-        }));
+        // Issue #3 — localize district names into the selected language. They are
+        // proper nouns, so they are transliterated via the cached translate layer
+        // (same mechanism as C4). The submitted VALUE stays the English name; only
+        // the display label is localized. English/"other" skip the call, and any
+        // failure falls back to the English labels so the step never breaks.
+        // NB: read the district list INSIDE the deferred callback so the just-
+        // dispatched state selection has flushed into stateRef first.
+        botSay(S.askDistrict, async () => {
+          const dists = districtsFor(stateRef.current.data.state);
+          const dLang = stateRef.current.lang;
+          let labels = dists;
+          if (dLang !== 'en' && dLang !== 'other') {
+            try { labels = await translateTexts(dists, dLang); } catch { labels = dists; }
+          }
+          setPrompt({
+            type: 'chips',
+            options: dists.map((d, i) => ({ value: d, label: labels[i] || d })),
+          });
+        });
         break;
       case 'describe':
         botSay(S.voicePrompt, () => setPrompt({ type: 'voicetext', mic: true }));
@@ -489,7 +504,11 @@ export default function CitizenApp() {
     if (stateRef.current.step === 'nameRecord') {
       const name = parseSpokenName(result.transcript || '');
       if (name) {
-        dispatch({ type: 'pushUser', text: name });
+        // Issue #2 — mark the name bubble translatable (free) with its origin
+        // language so it re-transliterates when the citizen switches language,
+        // exactly like a typed name. Without this a spoken name stayed frozen in
+        // the language it was captured in.
+        dispatch({ type: 'pushUser', text: name, lang: stateRef.current.lang, free: true });
         dispatch({ type: 'set', patch: { step: 'name' } });
         finishName(name);
       } else {
@@ -519,18 +538,18 @@ export default function CitizenApp() {
     dispatch({ type: 'popTyping' });
     dispatch({ type: 'set', patch: { busy: false } });
 
-    // C2 — never auto-submit or eject the citizen. Drop the transcript into an
-    // editable box they confirm (or fix). On a failed/empty transcript, keep the
-    // box open with a gentle retry hint — the mic (retry) and typing both stay
-    // available; we do not fall back to a dead-end error.
+    // Issue #1 — the spoken complaint is processed directly in the background:
+    // it goes straight to classification and NEVER lands in the visible text
+    // box. The user speaks → we process → the assistant's response appears.
+    // If nothing was captured, reopen the describe prompt (mic + typing) with an
+    // empty box (still no injected text) so they can retry or type instead.
     const heard = result.transcript.trim();
     dispatch({ type: 'set', patch: { step: 'describe' } });
     if (heard) {
-      botSay(xstr(stateRef.current.lang, 'voiceReview'), () =>
-        setPrompt({ type: 'voicetext', mic: true, prefill: heard }));
+      await handleDescribe(heard);
     } else {
       botSay(xstr(stateRef.current.lang, 'voiceRetry'), () =>
-        setPrompt({ type: 'voicetext', mic: true, prefill: '' }));
+        setPrompt({ type: 'voicetext', mic: true }));
     }
   };
 
@@ -631,7 +650,10 @@ export default function CitizenApp() {
         dispatch({ type: 'set', patch: { step: 'done' } });
         setPrompt({ type: 'text', placeholder: 'hi' });
       });
-    } catch {
+    } catch (err) {
+      // Log the real failure (the server now returns the actual DB/routing error)
+      // so ticket-creation problems are diagnosable instead of silently generic.
+      console.error('createTicket failed:', err);
       dispatch({ type: 'popTyping' });
       dispatch({ type: 'set', patch: { busy: false } });
       botSay(S.saveError);
