@@ -15,12 +15,13 @@ import { useEffect, useReducer, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LANGS, langCodeShort, resolveLang } from '../../data/languages';
 import { STATES, districtsFor } from '../../data/geography';
+import { stateLabelLocalized } from '../../data/states_i18n';
 import {
   SCHEMES, ISSUES, schemeLabelLocalized, issueLabelLocalized,
 } from '../../data/schemes';
-import { strings, optLabel, rowLabel, fmt, WELCOME, type StrKey } from '../../data/i18n';
+import { strings, optLabel, rowLabel, fmt, xstr, WELCOME, type StrKey } from '../../data/i18n';
 import {
-  classifyGrievance, createTicket, uploadVoiceClip, fetchTicketsByPhone,
+  classifyGrievance, createTicket, uploadVoiceClip, fetchTicketsByPhone, translateTexts,
 } from '../../lib/api';
 import {
   getDeviceIdentity, saveDeviceIdentity, normalizePhone,
@@ -53,7 +54,7 @@ const FOLLOW_CFG: Record<FollowKey, { q: StrKey; opts?: string[]; textPh?: StrKe
   bank_linked: { q: 'askBank', opts: ['yes', 'no', 'ns'] },
   ekyc_done: { q: 'askEkyc', opts: ['yes', 'no', 'ns'] },
   reason_given: { q: 'askReason', opts: ['yes', 'no', 'ns'] },
-  docs_status: { q: 'askDocs', opts: ['aadhaar_only', 'ration_card', 'job_card', 'none'] },
+  docs_status: { q: 'askDocs', opts: ['aadhaar', 'ration_card', 'job_card', 'bank_passbook', 'all_docs', 'none'] },
   attempts: { q: 'askAttempts', opts: ['once', 'few', 'many'] },
   alt_auth_offered: { q: 'askAltAuth', opts: ['yes', 'no'] },
   recent_bank_change: { q: 'askPayNew', opts: ['yes', 'no', 'ns'] },
@@ -64,8 +65,13 @@ const FOLLOW_CFG: Record<FollowKey, { q: StrKey; opts?: string[]; textPh?: StrKe
   official_role: { q: 'askRole', opts: ['dealer', 'operator', 'official', 'other'] },
   paid: { q: 'askBribePaid', opts: ['yes', 'no', 'refused'] },
   detail_field: { q: 'askDetWhat', opts: ['fld_name', 'fld_dob', 'fld_address', 'fld_bank', 'fld_aadhaar'] },
-  docs_available: { q: 'askDetDocs', opts: ['aadhaar_only', 'ration_card', 'job_card', 'none'] },
+  docs_available: { q: 'askDetDocs', opts: ['aadhaar', 'ration_card', 'job_card', 'bank_passbook', 'all_docs', 'none'] },
 };
+
+// "All of the above" for the document questions expands to this full set, so the
+// value stored on the ticket (and read by the officer) is the complete list —
+// not an opaque "all" marker. (C3: server-facing expansion at submit time.)
+const ALL_DOC_SET = ['aadhaar', 'ration_card', 'job_card', 'bank_passbook'];
 
 const FOLLOW_KEYS = new Set(Object.keys(FOLLOW_CFG));
 
@@ -91,7 +97,7 @@ interface State {
 
 type Action =
   | { type: 'set'; patch: Partial<State> }
-  | { type: 'pushUser'; text: string; voice?: boolean }
+  | { type: 'pushUser'; text: string; voice?: boolean; lang?: string; free?: boolean }
   | { type: 'pushBot'; text: string }
   | { type: 'pushTyping' }
   | { type: 'popTyping' }
@@ -103,7 +109,18 @@ function reducer(s: State, a: Action): State {
     case 'set': return { ...s, ...a.patch };
     case 'mergeData': return { ...s, data: { ...s.data, ...a.data } };
     case 'pushUser':
-      return { ...s, messages: [...s.messages, { kind: a.voice ? 'voice' : 'user', text: a.text, time: now() }] };
+      return {
+        ...s,
+        messages: [...s.messages, {
+          kind: a.voice ? 'voice' : 'user',
+          text: a.text,
+          time: now(),
+          // Track origin so free text can be re-translated on a later lang switch.
+          originalText: a.free ? a.text : undefined,
+          originalLang: a.free ? (a.lang || s.lang) : undefined,
+          translatable: !!a.free,
+        }],
+      };
     case 'pushBot':
       return { ...s, messages: [...s.messages, { kind: 'bot', text: a.text, time: now() }] };
     case 'pushTyping':
@@ -187,7 +204,6 @@ export default function CitizenApp() {
     dispatch({ type: 'set', patch: { lang: real, stage: 'chat', langSheetOpen: false } });
     dispatch({ type: 'mergeData', data: { lang: real } });
     const S = strings(real);
-
     const id = getDeviceIdentity();
     if (id) {
       // Returning citizen — reuse phone, confirm the name.
@@ -207,7 +223,68 @@ export default function CitizenApp() {
     }
   };
 
-  const pickLanguage = (code: string) => applyLanguage(code, true);
+  // ---- language pick / change ----------------------------------------------
+  const pickLanguage = (code: string) => {
+    // First choice at the language screen → greet + start the flow.
+    if (stateRef.current.step === 'language') { applyLanguage(code, true); return; }
+    // Mid-conversation change via the top-right toggle: switch language, re-render
+    // prior free text in the new script (C4), then re-ask the current step — the
+    // conversation is not restarted.
+    const real = resolveLang(code);
+    const L = LANGS.find((x) => x.code === code);
+    saveStoredLang(real);
+    dispatch({ type: 'pushUser', text: L ? L.native : 'English' });
+    dispatch({ type: 'set', patch: { lang: real, langSheetOpen: false } });
+    dispatch({ type: 'mergeData', data: { lang: real } });
+    retranslateMessages(real);
+    setTimeout(() => reAsk(), 0);
+  };
+
+  // C4 — re-render previously typed/spoken free text in the newly selected
+  // language. Enum chip labels are skipped (translatable=false); the canonical
+  // stored value on any ticket is unaffected. Cached per (text, targetLang).
+  const retranslateMessages = async (targetLang: string) => {
+    const items = stateRef.current.messages
+      .map((m, i) => ({ m, i }))
+      .filter(({ m }) => m.translatable && m.originalText && (m.originalLang || 'en') !== targetLang);
+    if (!items.length) return;
+    const translated = await translateTexts(items.map(({ m }) => m.originalText as string), targetLang);
+    const next = stateRef.current.messages.slice();
+    items.forEach(({ i }, k) => { next[i] = { ...next[i], text: translated[k] }; });
+    dispatch({ type: 'set', patch: { messages: next } });
+  };
+
+  // Re-issue the current step's question in the (now updated) language.
+  const reAsk = () => {
+    const step = stateRef.current.step;
+    const S = strings(stateRef.current.lang);
+    if (FOLLOW_KEYS.has(step) || ['state', 'district', 'describe', 'scheme', 'issue'].includes(step)) {
+      goTo(step); return;
+    }
+    switch (step) {
+      case 'phone': botSay(S.askPhone, () => setPrompt({ type: 'text', placeholder: S.phonePh })); break;
+      case 'name': botSay(S.askName, () => setPrompt({ type: 'text', placeholder: S.namePh, mic: true })); break;
+      case 'continueName': {
+        const n = stateRef.current.data.name || '';
+        botSay(fmt(S.askContinueName, { n }), () => setPrompt({
+          type: 'chips',
+          options: [{ value: 'keep', label: fmt(S.keepName, { n }) }, { value: 'change', label: S.changeName }],
+        }));
+        break;
+      }
+      case 'flowChoice': goToFlowChoice(); break;
+      case 'confirm': showSummary(); break;
+      case 'trackSelect': handleTrack(); break;
+      case 'voiceConsent':
+        botSay(S.askVoiceConsent, () => setPrompt({
+          type: 'chips',
+          options: [{ value: 'yes', label: S.vYes }, { value: 'no', label: S.vNo }],
+        }));
+        break;
+      case 'done': botSay([S.thanks, S.restartHint], () => setPrompt({ type: 'text', placeholder: 'hi' })); break;
+      default: break;
+    }
+  };
 
   // ---- the main engine -----------------------------------------------------
   const goTo = (step: string) => {
@@ -226,7 +303,10 @@ export default function CitizenApp() {
 
     switch (step) {
       case 'state':
-        botSay(S.askState, () => setPrompt({ type: 'chips', options: STATES.map((s) => ({ value: s, label: s })) }));
+        botSay(S.askState, () => setPrompt({
+          type: 'chips',
+          options: STATES.map((s) => ({ value: s, label: stateLabelLocalized(stateRef.current.lang, s) })),
+        }));
         break;
       case 'district':
         botSay(S.askDistrict, () => setPrompt({
@@ -293,8 +373,8 @@ export default function CitizenApp() {
   };
 
   // ---- handle submit -------------------------------------------------------
-  const submit = (value: string, label?: string, isVoice?: boolean) => {
-    dispatch({ type: 'pushUser', text: label || value, voice: isVoice });
+  const submit = (value: string, label?: string, isVoice?: boolean, free?: boolean) => {
+    dispatch({ type: 'pushUser', text: label || value, voice: isVoice, lang: stateRef.current.lang, free });
     advance(value, label || value);
   };
 
@@ -303,7 +383,9 @@ export default function CitizenApp() {
 
     // Follow-up answers (chips store the value/code, text stores typed text).
     if (FOLLOW_KEYS.has(step)) {
-      dispatch({ type: 'mergeData', data: { [step]: value } });
+      // C3: "All of the above" expands to the full document set before storage.
+      const stored = value === 'all_docs' ? ALL_DOC_SET.join(',') : value;
+      dispatch({ type: 'mergeData', data: { [step]: stored } });
       const remaining = stateRef.current.pendingFollows.filter((f) => f !== step);
       dispatch({ type: 'set', patch: { pendingFollows: remaining } });
       nextFollow(remaining);
@@ -437,12 +519,18 @@ export default function CitizenApp() {
     dispatch({ type: 'popTyping' });
     dispatch({ type: 'set', patch: { busy: false } });
 
-    // The transcript is the "backend translation" input to the classifier.
-    if (result.transcript.trim()) {
-      dispatch({ type: 'set', patch: { step: 'describe' } });
-      await handleDescribe(result.transcript.trim());
+    // C2 — never auto-submit or eject the citizen. Drop the transcript into an
+    // editable box they confirm (or fix). On a failed/empty transcript, keep the
+    // box open with a gentle retry hint — the mic (retry) and typing both stay
+    // available; we do not fall back to a dead-end error.
+    const heard = result.transcript.trim();
+    dispatch({ type: 'set', patch: { step: 'describe' } });
+    if (heard) {
+      botSay(xstr(stateRef.current.lang, 'voiceReview'), () =>
+        setPrompt({ type: 'voicetext', mic: true, prefill: heard }));
     } else {
-      botSay(S.recFail, () => goTo('describe'));
+      botSay(xstr(stateRef.current.lang, 'voiceRetry'), () =>
+        setPrompt({ type: 'voicetext', mic: true, prefill: '' }));
     }
   };
 
@@ -469,6 +557,7 @@ export default function CitizenApp() {
       data: {
         scheme: result.scheme, issue: result.issue, priority: result.priority,
         original_text: text, english_summary: result.english_summary,
+        confidence: result.confidence,
         ...ext,
       },
     });
@@ -527,6 +616,7 @@ export default function CitizenApp() {
         extracted: {},
         detail_rows: buildRows('en', d), // officer dashboard stays English
         voice_clip_id: d.voice_clip_id,
+        confidence: typeof d.confidence === 'number' ? d.confidence : undefined,
       });
       dispatch({ type: 'popTyping' });
       dispatch({ type: 'set', patch: { busy: false } });
@@ -588,7 +678,7 @@ export default function CitizenApp() {
 
     const rows: Array<[string, string]> = [
       [S.tStatusLabel, statusLabel(lang, t.status)],
-      [S.tOfficeLabel, t.route],
+      [S.tOfficeLabel, t.current_office || t.route],
       [S.tOpenedOn, fmtDate(t.created_at)],
     ];
     const history = Array.isArray(t.updates) ? t.updates : [];
@@ -596,6 +686,15 @@ export default function CitizenApp() {
       rows.push([S.tUpdatesLabel, history.map((u) => `${fmtDate(u.ts)} — ${statusLabel(lang, u.status)}`).join('\n')]);
     } else {
       rows.push([S.tUpdatesLabel, S.tNoUpdates]);
+    }
+    // O3 — the routing trail: which office it moved to and why (citizen-visible).
+    const events = Array.isArray(t.events) ? t.events : [];
+    if (events.length) {
+      const trail = [...events]
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((e) => `${e.to_office} — “${e.comment}”`)
+        .join('\n');
+      rows.push([xstr(lang, 'trailLabel'), trail]);
     }
 
     dispatch({ type: 'pushCard', msg: { kind: 'summary', text: t.id, rows } });
@@ -628,7 +727,12 @@ function buildRows(lang: string, d: Record<string, any>): Array<[string, string]
   for (const key of ROW_ORDER) {
     const v = d[key];
     if (v === undefined || v === null || v === '') continue;
-    rows.push([rowLabel(lang, key), optLabel(lang, String(v))]);
+    // A comma-joined value (e.g. expanded "All of the above") renders each part.
+    const s = String(v);
+    const label = s.includes(',')
+      ? s.split(',').map((x) => optLabel(lang, x.trim())).join(', ')
+      : optLabel(lang, s);
+    rows.push([rowLabel(lang, key), label]);
   }
   if (d.original_text) rows.push([rowLabel(lang, 'original_text'), d.original_text]);
   return rows;

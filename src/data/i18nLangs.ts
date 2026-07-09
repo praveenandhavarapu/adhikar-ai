@@ -86,6 +86,8 @@ const OPT_TE: OptTable = {
   agri: 'వ్యవసాయ కూలి', domestic: 'ఇంటి పని', trade: 'వ్యాపారం / దుకాణం',
   refused: 'నేను నిరాకరించాను',
   aadhaar_only: 'ఆధార్ మాత్రమే', ration_card: 'రేషన్ కార్డు', job_card: 'జాబ్ కార్డు', none: 'ఏదీ కాదు',
+  aadhaar: 'ఆధార్ కార్డు', bank_passbook: 'బ్యాంక్ పాస్‌బుక్', pan: 'పాన్ కార్డు',
+  all_docs: 'పైవన్నీ', all: 'పైవన్నీ',
   once: 'ఒకసారి', few: 'కొన్నిసార్లు', many: 'చాలాసార్లు',
   valid: 'చెల్లుబాటు', expired: 'గడువు ముగిసింది',
   dealer: 'రేషన్ డీలర్', operator: 'CSC ఆపరేటర్', official: 'ప్రభుత్వ అధికారి',

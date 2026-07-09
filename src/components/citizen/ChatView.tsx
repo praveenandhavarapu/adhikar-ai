@@ -20,7 +20,7 @@ interface Props {
   state: ViewState;
   onBack: () => void;
   onPickLanguage: (code: string) => void;
-  onSubmit: (value: string, label?: string, isVoice?: boolean) => void;
+  onSubmit: (value: string, label?: string, isVoice?: boolean, free?: boolean) => void;
   onMicRequest: () => void;               // tapping mic → flow asks voice consent
   onVoiceRecorded: (r: VoiceResult) => void; // a clip finished recording
   onChangeLang: () => void;
@@ -178,12 +178,19 @@ function InputArea(p: Props) {
   const { prompt, busy } = p.state;
   const [draft, setDraft] = useState('');
 
+  // Pre-fill the box when a prompt carries a transcript to review (C2). Keyed on
+  // the prefill value so re-recording replaces the text the user is editing.
+  const prefill = prompt?.prefill;
+  useEffect(() => { if (prefill !== undefined) setDraft(prefill); }, [prefill]);
+
   if (!prompt) {
     return <div style={{ height: 8, background: '#f0f0f0', flexShrink: 0 }} />;
   }
 
-  const send = (value: string, label?: string, voice?: boolean) => {
-    p.onSubmit(value, label, voice);
+  // Free = typed/edited free text (translatable on a later language switch).
+  // Enum chips call send() without it, so their fixed labels are never LLM-translated.
+  const send = (value: string, label?: string, voice?: boolean, free?: boolean) => {
+    p.onSubmit(value, label, voice, free);
     setDraft('');
   };
 
@@ -216,7 +223,7 @@ function InputArea(p: Props) {
         className="adh-native"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim() && !busy) send(draft.trim(), draft.trim()); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim() && !busy) send(draft.trim(), draft.trim(), false, true); }}
         placeholder={prompt.placeholder || 'Type a message'}
         disabled={busy}
         style={{
@@ -237,7 +244,7 @@ function InputArea(p: Props) {
         >🎙</button>
       )}
       <button
-        onClick={() => draft.trim() && !busy && send(draft.trim(), draft.trim())}
+        onClick={() => draft.trim() && !busy && send(draft.trim(), draft.trim(), false, true)}
         aria-label="Send"
         disabled={busy}
         style={{

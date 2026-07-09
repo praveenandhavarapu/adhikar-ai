@@ -178,6 +178,9 @@ const OPT_EN: OptTable = {
   // eKYC / reason / alt-auth / recent / repeat done via yes/no/ns
   // docs
   aadhaar_only: 'Aadhaar only', ration_card: 'Ration card', job_card: 'Job card', none: 'None of these',
+  aadhaar: 'Aadhaar card', bank_passbook: 'Bank passbook', pan: 'PAN card',
+  // "all of the above" / not-sure tail options (C3)
+  all_docs: 'All of the above', all: 'All of the above',
   // attempts
   once: 'Once', few: 'A few times', many: 'Many times',
   // card status
@@ -197,6 +200,8 @@ const OPT_HI: OptTable = {
   agri: 'खेत मज़दूरी', domestic: 'घरेलू काम', trade: 'व्यापार / दुकान',
   refused: 'मैंने मना किया',
   aadhaar_only: 'केवल आधार', ration_card: 'राशन कार्ड', job_card: 'जॉब कार्ड', none: 'इनमें से कोई नहीं',
+  aadhaar: 'आधार कार्ड', bank_passbook: 'बैंक पासबुक', pan: 'पैन कार्ड',
+  all_docs: 'सभी उपरोक्त', all: 'सभी उपरोक्त',
   once: 'एक बार', few: 'कुछ बार', many: 'कई बार',
   valid: 'वैध', expired: 'समाप्त',
   dealer: 'राशन डीलर', operator: 'CSC ऑपरेटर', official: 'सरकारी अधिकारी',
@@ -249,6 +254,32 @@ export function __alias(code: string, from: string): void {
 // Exported so the shared type is reusable by the companion language tables.
 export type StrTable = typeof STR_EN;
 export type { OptTable, RowTable };
+
+// ---- extra strings (Phase 2) -----------------------------------------------
+// Kept separate from the typed StrTable so new copy doesn't force an edit to all
+// 15 language tables — en/hi/te are provided, everything else falls back to en.
+type XTable = Record<string, string>;
+const XSTR_EN: XTable = {
+  voiceReview: "Here's what I heard — check it, edit if needed, then send. Or tap 🎤 to record again.",
+  voiceRetry: "I couldn't catch that clearly. Tap 🎤 to try again, or just type your complaint below.",
+  trailLabel: 'Tracking trail',
+};
+const XSTR_HI: XTable = {
+  voiceReview: 'मैंने यह सुना — जाँच लें, ज़रूरत हो तो सुधारें, फिर भेजें। या दोबारा रिकॉर्ड करने के लिए 🎤 दबाएँ।',
+  voiceRetry: 'मैं स्पष्ट रूप से सुन नहीं पाया। दोबारा के लिए 🎤 दबाएँ, या नीचे अपनी शिकायत लिखें।',
+  trailLabel: 'ट्रैकिंग विवरण',
+};
+const XSTR_TE: XTable = {
+  voiceReview: 'నేను ఇది విన్నాను — సరిచూసి, అవసరమైతే మార్చి, పంపండి. లేదా మళ్ళీ రికార్డ్ చేయడానికి 🎤 నొక్కండి.',
+  voiceRetry: 'నాకు స్పష్టంగా వినిపించలేదు. మళ్ళీ కోసం 🎤 నొక్కండి, లేదా కింద మీ ఫిర్యాదు టైప్ చేయండి.',
+  trailLabel: 'ట్రాకింగ్ వివరాలు',
+};
+const XSTR: Record<string, XTable> = { en: XSTR_EN, hi: XSTR_HI, te: XSTR_TE };
+
+// Extra localized string with English fallback (for Phase 2 additions).
+export function xstr(lang: string, key: string): string {
+  return (XSTR[lang] && XSTR[lang][key]) || XSTR_EN[key] || '';
+}
 
 export const WELCOME =
   'Welcome to AdhikarAI. We are here to assist you with any issue related to your government welfare benefits. Please select your preferred language to continue.';

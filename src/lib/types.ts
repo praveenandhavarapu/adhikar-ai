@@ -97,6 +97,7 @@ export interface CreateTicketInput {
   extracted: ExtractedFields;
   detail_rows: Array<[string, string]>; // [label, value] for officer display
   voice_clip_id?: string;     // links an uploaded voice note to this ticket
+  confidence?: number;        // classifier confidence, stored as ai_confidence
 }
 
 // One entry in a ticket's status-change history.
@@ -128,8 +129,30 @@ export interface Ticket {
   ai_root_cause: string;      // plain-language root-cause analysis
   ai_suggested_resolution: string; // recommended officer action
   ai_cross_scheme: string[];  // other schemes likely hit by same root cause
+  // Phase 3 (O1) — structured analysis stored at intake, read without any API call:
+  ai_summary: string;         // officer-facing one-line summary (= english_summary)
+  ai_category: string;        // classified scheme code
+  ai_issue_family: string;    // classified issue code
+  ai_recommended_office: string; // owning office (English name)
+  ai_confidence: number;      // classifier confidence 0..1
+  ai_generated_at: string | null;
+  current_office: string;     // office currently holding the ticket (tracking)
+  resolved_at: string | null; // set when status → resolved
+  target_month_key: string;   // YYYY-MM for monthly aggregates
   updates: TicketUpdate[];    // status-change history (timeline)
+  events?: TicketEvent[];     // routing hops with comments (tracking trail, O3)
   voice_clips?: VoiceClip[];  // embedded voice notes (officer can play)
   created_at: string;         // ISO timestamp
   age_days: number;           // derived for SLA display
+}
+
+// ---- ticket_events: routing hops with mandatory comments (O3) ---------------
+export interface TicketEvent {
+  id: string;
+  ticket_id: string;
+  from_office: string;
+  to_office: string;
+  comment: string;
+  actor_phone: string;
+  created_at: string;
 }
