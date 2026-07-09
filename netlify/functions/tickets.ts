@@ -31,9 +31,13 @@ export const handler: Handler = async (event) => {
     // the officer dashboard: priority first, then newest.
     const phone = (event.queryStringParameters?.phone || '').replace(/\D/g, '');
 
+    // Base ticket query. voice_clips is part of the base schema, so it is safe to
+    // embed. ticket_events (v2) is fetched SEPARATELY below so that a database
+    // still on the old schema (no ticket_events table) cannot break the whole
+    // dashboard load — that regression is exactly the "Could not load tickets".
     let query = supabase
       .from('tickets')
-      .select('*, voice_clips(*), events:ticket_events(*)');
+      .select('*, voice_clips(*)');
 
     query = phone
       ? query.eq('phone', phone).order('created_at', { ascending: false })
@@ -42,11 +46,32 @@ export const handler: Handler = async (event) => {
     const { data, error } = await query;
 
     if (error) {
-      console.error('tickets list error:', error);
-      return bad('Could not load tickets', 500);
+      // Surface the real Postgres error (message + code) rather than a generic one.
+      console.error('tickets list error:', { message: error.message, code: (error as any).code, details: (error as any).details });
+      return bad(`Could not load tickets: ${error.message || 'query failed'}`, 500);
     }
+
+    // Best-effort routing trail. If ticket_events is missing (old schema) we log
+    // a warning and return tickets with empty trails instead of failing the load.
+    const eventsByTicket: Record<string, any[]> = {};
+    try {
+      const ids = (data || []).map((t) => t.id);
+      if (ids.length) {
+        const { data: evs, error: evErr } = await supabase
+          .from('ticket_events').select('*').in('ticket_id', ids);
+        if (evErr) {
+          console.warn('ticket_events unavailable (run the v2 migration):', evErr.message);
+        } else {
+          for (const e of evs || []) (eventsByTicket[e.ticket_id] ||= []).push(e);
+        }
+      }
+    } catch (e) {
+      console.warn('ticket_events fetch skipped:', e);
+    }
+
     const tickets: Ticket[] = (data || []).map((t) => ({
       ...t,
+      events: eventsByTicket[t.id] || [],
       age_days: ageDays(t.created_at),
     })) as Ticket[];
     return ok({ tickets });

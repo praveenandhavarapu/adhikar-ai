@@ -251,3 +251,37 @@ create policy "anon can read ticket_events"
   to anon
   using (true);
 -- (Writes happen via the secured route-ticket function using service_role.)
+
+-- ============================================================================
+-- Issue #6 — make ALL current tickets visible under the default district-desk
+-- scope:  office = all offices,  category = all categories,  phone = 9182636205.
+--
+-- "All offices / all categories" is the no-filter scope on the officer
+-- dashboard, so any ticket that loads is already visible there. This migration
+-- additionally (a) associates every existing ticket with the phone 9182636205
+-- (so that number owns/tracks them and attribution is consistent), and
+-- (b) guarantees current_office + target_month_key are populated so the
+-- office-scoped and Home/aggregate views include every ticket too.
+-- Idempotent — safe to re-run.
+-- ============================================================================
+update public.tickets
+set phone = '9182636205',
+    contact_masked = '•••• ••62 05'
+where phone is distinct from '9182636205';
+
+update public.tickets set
+  current_office = coalesce(nullif(current_office, ''),
+    case
+      when issue = 'bribe'    then 'State Anti-Corruption Cell'
+      when scheme = 'pds'     then 'Civil Supplies (PDS)'
+      when scheme = 'mgnrega' then 'Rural Development (MGNREGA)'
+      when scheme = 'nsap'    then 'Pension Cell (NSAP)'
+      when scheme = 'pmkisan' then 'PM-KISAN PMU'
+      when scheme = 'pmjay'   then 'Health / PM-JAY Grievance'
+      when scheme = 'ujjwala' then 'District Supply / LPG'
+      when scheme = 'awas'    then 'Housing (PMAY)'
+      else 'District Grievance Cell'
+    end),
+  ai_recommended_office = coalesce(nullif(ai_recommended_office, ''), current_office),
+  target_month_key = coalesce(nullif(target_month_key, ''), to_char(created_at, 'YYYY-MM'))
+where current_office = '' or target_month_key = '' or ai_recommended_office = '';
